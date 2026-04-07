@@ -1,0 +1,91 @@
+警告: data_fetcher模块未找到，使用模拟数据
+ * Serving Flask app 'app'
+ * Debug mode: on
+INFO:werkzeug:[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5008
+INFO:werkzeug:[33mPress CTRL+C to quit[0m
+INFO:werkzeug: * Restarting with stat
+WARNING:werkzeug: * Debugger is active!
+INFO:werkzeug: * Debugger PIN: 132-125-457
+INFO:werkzeug:127.0.0.1 - - [07/Apr/2026 20:54:11] "GET / HTTP/1.1" 200 -
+INFO:market_data_real:开始获取真实市场数据...
+INFO:market_data_real:✅ 上证指数: 3884.1505 (+0.10%)
+INFO:market_data_real:✅ 深证成指: 13392.942 (+0.30%)
+INFO:market_data_real:✅ 创业板指: 3162.823 (+0.42%)
+INFO:market_data_real:✅ 北证50: 1256.149 (+0.12%)
+INFO:market_data_real:✅ 科创50: 1261.7112 (+0.44%)
+INFO:market_data_real:✅ 上证50: 2830.1267 (-0.02%)
+INFO:market_data_real:✅ 深证100: 7876.291 (-0.04%)
+INFO:market_data_real:✅ 沪深300: 4445.8613 (+0.11%)
+INFO:market_data_real:✅ 中证500: 7562.1371 (+0.36%)
+INFO:market_data_real:✅ 中证1000: 7556.2765 (+0.26%)
+INFO:market_data_real:✅ 国债指数: 226.1117 (+0.03%)
+INFO:market_data_real:✅ 企债指数: 0.0 (+0.00%)
+INFO:market_data_real:✅ 恒生指数: 25116.53 (-0.70%)
+INFO:market_data_real:✅ 恒生国企: 8456.92 (-0.56%)
+INFO:market_data_real:✅ 恒生科技: 4679.1 (-1.63%)
+INFO:market_data_real:✅ 道琼斯: 46669.88 (+0.43%)
+INFO:market_data_real:✅ 纳斯达克: 21996.34 (+0.26%)
+INFO:market_data_real:✅ 标普500: 6611.83 (+0.37%)
+ERROR:market_data_real:❌ COMEX黄金 获取失败
+ERROR:market_data_real:❌ COMEX黄金 获取失败
+INFO:market_data_real:数据获取完成: A股12个, 港美6个, 债商2个
+INFO:werkzeug:127.0.0.1 - - [07/Apr/2026 20:55:40] "GET /api/market HTTP/1.1" 200 -
+INFO:market_data_real:开始获取真实市场数据...
+INFO:market_data_real:✅ 上证指数: 3884.1505 (+0.10%)
+INFO:market_data_real:✅ 深证成指: 13392.942 (+0.30%)
+INFO:market_data_real:✅ 创业板指: 3162.823 (+0.42%)
+INFO:market_data_real:✅ 北证50: 1256.149 (+0.12%)
+INFO:market_data_real:✅ 科创50: 1261.7112 (+0.44%)
+INFO:market_data_real:✅ 上证50: 2830.1267 (-0.02%)
+INFO:market_data_real:✅ 深证100: 7876.291 (-0.04%)
+INFO:market_data_real:✅ 沪深300: 4445.8613 (+0.11%)
+INFO:market_data_real:✅ 中证500: 7562.1371 (+0.36%)
+INFO:market_data_real:✅ 中证1000: 7556.2765 (+0.26%)
+INFO:market_data_real:✅ 国债指数: 226.1117 (+0.03%)
+INFO:market_data_real:✅ 企债指数: 0.0 (+0.00%)
+INFO:market_data_real:✅ 恒生指数: 25116.53 (-0.70%)
+INFO:market_data_real:✅ 恒生国企: 8456.92 (-0.56%)
+INFO:market_data_real:✅ 恒生科技: 4679.1 (-1.63%)
+INFO:market_data_real:✅ 道琼斯: 46669.88 (+0.43%)
+INFO:market_data_real:✅ 纳斯达克: 21996.34 (+0.26%)
+INFO:market_data_real:✅ 标普500: 6611.83 (+0.37%)
+ERROR:market_data_real:❌ COMEX黄金 获取失败
+ERROR:market_data_real:❌ COMEX黄金 获取失败
+INFO:market_data_real:数据获取完成: A股12个, 港美6个, 债商2个
+INFO:werkzeug:127.0.0.1 - - [07/Apr/2026 20:56:36] "GET /api/market HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [07/Apr/2026 20:56:54] "GET / HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [07/Apr/2026 20:56:54] "[36mGET /static/css/style.css HTTP/1.1[0m" 304 -
+INFO:werkzeug:127.0.0.1 - - [07/Apr/2026 20:56:54] "[36mGET /static/js/main.js HTTP/1.1[0m" 304 -
+INFO:market_data_real:开始获取真实市场数据...
+INFO:market_data_real:✅ 上证指数: 3884.1505 (+0.10%)
+INFO:market_data_real:✅ 深证成指: 13392.942 (+0.30%)
+INFO:market_data_real:✅ 创业板指: 3162.823 (+0.42%)
+INFO:market_data_real:✅ 北证50: 1256.149 (+0.12%)
+INFO:market_data_real:✅ 科创50: 1261.7112 (+0.44%)
+INFO:market_data_real:✅ 上证50: 2830.1267 (-0.02%)
+INFO:market_data_real:✅ 深证100: 7876.291 (-0.04%)
+INFO:market_data_real:✅ 沪深300: 4445.8613 (+0.11%)
+INFO:market_data_real:✅ 中证500: 7562.1371 (+0.36%)
+INFO:market_data_real:✅ 中证1000: 7556.2765 (+0.26%)
+INFO:market_data_real:✅ 国债指数: 226.1117 (+0.03%)
+INFO:market_data_real:✅ 企债指数: 0.0 (+0.00%)
+INFO:market_data_real:✅ 恒生指数: 25116.53 (-0.70%)
+INFO:market_data_real:✅ 恒生国企: 8456.92 (-0.56%)
+INFO:market_data_real:✅ 恒生科技: 4679.1 (-1.63%)
+INFO:market_data_real:✅ 道琼斯: 46669.88 (+0.43%)
+INFO:market_data_real:✅ 纳斯达克: 21996.34 (+0.26%)
+INFO:market_data_real:✅ 标普500: 6611.83 (+0.37%)
+ERROR:market_data_real:❌ COMEX黄金 获取失败
+ERROR:market_data_real:❌ COMEX黄金 获取失败
+INFO:market_data_real:数据获取完成: A股12个, 港美6个, 债商2个
+INFO:werkzeug:127.0.0.1 - - [07/Apr/2026 20:56:58] "GET /api/market HTTP/1.1" 200 -
+INFO:werkzeug: * Detected change in '/Users/ohmygodcurry/Desktop/智能投顾助手/app.py', reloading
+警告: data_fetcher模块未找到，使用模拟数据
+INFO:werkzeug: * Restarting with stat
+Traceback (most recent call last):
+  File "/Users/ohmygodcurry/Desktop/智能投顾助手/app.py", line 5, in <module>
+    from market_data_akshare import get_market_data
+  File "/Users/ohmygodcurry/Desktop/智能投顾助手/market_data_akshare.py", line 11, in <module>
+    import efinance as ef
+ModuleNotFoundError: No module named 'efinance'

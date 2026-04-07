@@ -1,0 +1,559 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>智投星 - AI智能投顾平台</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css', v=asset_version) }}">
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="app-container">
+        <!-- 侧边栏 -->
+        <aside class="sidebar">
+            <div class="logo">
+                <div class="logo-icon">
+                    <svg viewBox="0 0 40 40" fill="none">
+                        <circle cx="20" cy="20" r="18" stroke="#3b82f6" stroke-width="2"/>
+                        <path d="M12 25 L17 18 L22 22 L28 13" stroke="#60a5fa" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+                        <circle cx="28" cy="13" r="3" fill="#3b82f6"/>
+                    </svg>
+                </div>
+                <div class="logo-text">
+                    <span class="logo-name">智投星</span>
+                    <span class="logo-sub">AI Smart Advisor</span>
+                </div>
+            </div>
+
+            <nav class="nav-menu">
+                <a class="nav-item active" data-page="dashboard" onclick="switchPage('dashboard')">
+                    <span class="nav-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+                    </span>
+                    <span>市场总览</span>
+                </a>
+                <a class="nav-item" data-page="risk" onclick="switchPage('risk')">
+                    <span class="nav-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/><path d="M9 14l2 2 4-4"/></svg>
+                    </span>
+                    <span>风险测评</span>
+                </a>
+                <a class="nav-item" data-page="allocation" onclick="switchPage('allocation')">
+                    <span class="nav-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 3v9l6.36 3.64"/></svg>
+                    </span>
+                    <span>智能配置</span>
+                </a>
+                <a class="nav-item" data-page="screening" onclick="switchPage('screening')">
+                    <span class="nav-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+                    </span>
+                    <span>智能选股</span>
+                </a>
+                <a class="nav-item" data-page="portfolio" onclick="switchPage('portfolio')">
+                    <span class="nav-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 00-2-2h-4a2 2 0 00-2 2v2"/></svg>
+                    </span>
+                    <span>我的持有</span>
+                </a>
+                <a class="nav-item" data-page="chat" onclick="switchPage('chat')">
+                    <span class="nav-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
+                    </span>
+                    <span>AI 助手</span>
+                </a>
+                <a class="nav-item" data-page="education" onclick="switchPage('education')">
+                    <span class="nav-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 3h6a4 4 0 014 4v14a3 3 0 00-3-3H2z"/><path d="M22 3h-6a4 4 0 00-4 4v14a3 3 0 013-3h7z"/></svg>
+                    </span>
+                    <span>投教中心</span>
+                </a>
+            </nav>
+
+            <div class="sidebar-footer">
+                <div class="ai-status">
+                    <span class="status-dot"></span>
+                    <span>AI引擎运行中</span>
+                </div>
+                <div class="version">v1.0.0 Demo</div>
+            </div>
+        </aside>
+
+        <!-- 主内容区 -->
+        <main class="main-content">
+            <!-- 顶部栏 -->
+            <header class="top-bar">
+                <div class="top-bar-left">
+                    <div class="page-title" id="pageTitle">市场总览</div>
+                    <div class="page-update-time" id="pageUpdateTime"></div>
+                </div>
+                <div class="top-bar-right">
+                    <div class="search-box">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+                        <input type="text" placeholder="搜索基金代码/名称..." id="searchInput">
+                        <div id="searchSuggest" class="search-suggest"></div>
+                    </div>
+                    <div class="user-info">
+                        <div class="user-avatar">U</div>
+                        <span>Demo用户</span>
+                    </div>
+                </div>
+            </header>
+
+            <!-- 页面内容容器 -->
+            <div class="content-wrapper">
+
+                <!-- ========== 市场总览 ========== -->
+                <div class="page-content active" id="page-dashboard">
+                    <div class="indices-row" id="indicesRow"></div>
+                    <div class="hk-indices-row" id="hkIndicesRow"></div>
+                    <div class="us-indices-row" id="usIndicesRow"></div>
+
+                    <div class="dashboard-grid">
+                        <div class="card card-chart">
+                            <div class="card-header">
+                                <div class="kline-title-wrap">
+                                    <h3>指数走势</h3>
+                                    <select id="klineIndexSelect" class="kline-index-select" onchange="changeKlineIndex(this.value)">
+                                        <option value="shanghai" selected>上证指数</option>
+                                        <option value="hstech">恒生科技指数</option>
+                                        <option value="nasdaq">纳斯达克指数</option>
+                                    </select>
+                                </div>
+                                <div class="card-actions">
+                                    <button class="btn-sm active" onclick="changeKlinePeriod('day')">日K</button>
+                                    <button class="btn-sm" onclick="changeKlinePeriod('week')">周K</button>
+                                </div>
+                            </div>
+                            <div class="card-body">
+                                <div id="klineChart" style="width:100%;height:320px;"></div>
+                            </div>
+                        </div>
+
+                        <div class="card card-sectors">
+                            <div class="card-header">
+                                <h3>板块热力图</h3>
+                                <span class="card-badge">实时</span>
+                            </div>
+                            <div class="card-body">
+                                <div id="sectorGrid" class="sector-grid"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="dashboard-grid-2">
+                        <div class="card">
+                            <div class="card-header">
+                                <h3>AI 市场洞察</h3>
+                                <span class="card-badge ai-badge">AI Powered</span>
+                            </div>
+                            <div class="card-body">
+                                <div id="aiInsights" class="ai-insights"></div>
+                            </div>
+                        </div>
+
+                        <div class="card">
+                            <div class="card-header"><h3>A股市场情绪指标</h3></div>
+                            <div class="card-body">
+                                <div id="sentimentGauge" style="width:100%;height:200px;"></div>
+                                <div id="sentimentHint" class="sentiment-hint"></div>
+                            </div>
+                        </div>
+
+                        <div class="card">
+                            <div class="card-header"><h3>7×24 快讯</h3></div>
+                            <div class="card-body">
+                                <div id="newsFeed" class="news-feed"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ========== 风险测评 ========== -->
+                <div class="page-content" id="page-risk">
+                    <div class="risk-container">
+                        <div class="risk-intro" id="riskIntro">
+                            <div class="risk-intro-icon">
+                                <svg viewBox="0 0 80 80" fill="none">
+                                    <circle cx="40" cy="40" r="36" stroke="#3b82f6" stroke-width="2" opacity="0.3"/>
+                                    <circle cx="40" cy="40" r="24" stroke="#60a5fa" stroke-width="2" opacity="0.5"/>
+                                    <circle cx="40" cy="40" r="12" fill="#3b82f6"/>
+                                    <path d="M35 40l3 3 7-7" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                                </svg>
+                            </div>
+                            <h2>投资者风险测评</h2>
+                            <p>根据监管要求，在为您提供智能投顾服务前，需要了解您的风险承受能力。<br>本测评共10道题，约需3分钟完成。</p>
+                            <button class="btn-primary btn-lg" onclick="startRiskAssessment()">开始测评</button>
+                        </div>
+
+                        <div class="risk-quiz hidden" id="riskQuiz">
+                            <div class="quiz-progress">
+                                <div class="quiz-progress-bar">
+                                    <div class="quiz-progress-fill" id="quizProgressFill"></div>
+                                </div>
+                                <span class="quiz-progress-text" id="quizProgressText">1/10</span>
+                            </div>
+                            <div id="quizContent"></div>
+                            <div class="quiz-nav">
+                                <button class="btn-secondary" id="btnPrev" onclick="prevQuestion()" disabled>上一题</button>
+                                <button class="btn-primary" id="btnNext" onclick="nextQuestion()">下一题</button>
+                            </div>
+                        </div>
+
+                        <div class="risk-result hidden" id="riskResult">
+                            <div class="result-header">
+                                <div class="result-score-ring" id="resultScoreRing"></div>
+                                <div class="result-info">
+                                    <h2 id="resultProfile"></h2>
+                                    <p id="resultDesc"></p>
+                                </div>
+                            </div>
+                            <div class="result-grid">
+                                <div class="card">
+                                    <div class="card-header"><h3>风险画像雷达图</h3></div>
+                                    <div class="card-body">
+                                        <div id="radarChart" style="width:100%;height:300px;"></div>
+                                    </div>
+                                </div>
+                                <div class="card">
+                                    <div class="card-header"><h3>推荐资产配置</h3></div>
+                                    <div class="card-body">
+                                        <div id="allocationPreview" style="width:100%;height:300px;"></div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="result-actions">
+                                <button class="btn-primary" onclick="switchPage('allocation')">查看详细配置方案</button>
+                                <button class="btn-secondary" onclick="retakeAssessment()">重新测评</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ========== 智能配置 ========== -->
+                <div class="page-content" id="page-allocation">
+                    <div id="allocationContent">
+                        <div class="allocation-empty" id="allocationEmpty">
+                            <div class="empty-icon">
+                                <svg viewBox="0 0 80 80" fill="none">
+                                    <circle cx="40" cy="40" r="36" stroke="#3b82f6" stroke-width="2" stroke-dasharray="6 4"/>
+                                    <path d="M40 24v16l11 6" stroke="#60a5fa" stroke-width="2.5" stroke-linecap="round"/>
+                                </svg>
+                            </div>
+                            <h2>请先完成风险测评</h2>
+                            <p>AI需要了解您的风险偏好，才能为您生成个性化的资产配置方案</p>
+                            <button class="btn-primary" onclick="switchPage('risk')">去做测评</button>
+                        </div>
+
+                        <div class="allocation-detail hidden" id="allocationDetail">
+                            <div class="allocation-header">
+                                <div class="profile-badge" id="allocProfileBadge"></div>
+                                <div class="allocation-meta">
+                                    <div class="meta-item">
+                                        <span class="meta-label">预期年化收益</span>
+                                        <span class="meta-value" id="allocReturn"></span>
+                                    </div>
+                                    <div class="meta-item">
+                                        <span class="meta-label">最大回撤</span>
+                                        <span class="meta-value" id="allocDrawdown"></span>
+                                    </div>
+                                    <div class="meta-item">
+                                        <span class="meta-label">波动率</span>
+                                        <span class="meta-value" id="allocVolatility"></span>
+                                    </div>
+                                    <div class="meta-item">
+                                        <span class="meta-label">夏普比率</span>
+                                        <span class="meta-value" id="allocSharpe"></span>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="allocation-grid">
+                                <div class="card">
+                                    <div class="card-header">
+                                        <h3>AI推荐资产配置</h3>
+                                        <span class="card-badge ai-badge">MPT优化</span>
+                                    </div>
+                                    <div class="card-body">
+                                        <div id="allocPieChart" style="width:100%;height:350px;"></div>
+                                    </div>
+                                </div>
+                                <div class="card">
+                                    <div class="card-header"><h3>配置明细</h3></div>
+                                    <div class="card-body">
+                                        <div id="allocDetails" class="alloc-details"></div>
+                                        <div class="alloc-note">
+                                            <svg viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2" width="16" height="16"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                                            <span>以上配置方案由AI基于现代投资组合理论(MPT)生成，仅供参考</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="card" style="margin-top:20px">
+                                <div class="card-header"><h3>历史回测模拟</h3></div>
+                                <div class="card-body">
+                                    <div id="backtestChart" style="width:100%;height:300px;"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ========== 智能选股 ========== -->
+                <div class="page-content" id="page-screening">
+                    <div class="screening-controls">
+                        <div class="card">
+                            <div class="card-header">
+                                <h3>多因子模型权重调节</h3>
+                                <span class="card-badge ai-badge">Multi-Factor</span>
+                            </div>
+                            <div class="card-body">
+                                <div class="factor-sliders">
+                                    <div class="factor-slider">
+                                        <div class="factor-label">
+                                            <span>价值因子</span>
+                                            <span class="factor-desc">PE、PB、股息率</span>
+                                        </div>
+                                        <input type="range" min="0" max="50" value="20" id="factorValue" oninput="updateFactorDisplay()">
+                                        <span class="factor-value" id="factorValueDisplay">20%</span>
+                                    </div>
+                                    <div class="factor-slider">
+                                        <div class="factor-label">
+                                            <span>成长因子</span>
+                                            <span class="factor-desc">营收增速、利润增速</span>
+                                        </div>
+                                        <input type="range" min="0" max="50" value="20" id="factorGrowth" oninput="updateFactorDisplay()">
+                                        <span class="factor-value" id="factorGrowthDisplay">20%</span>
+                                    </div>
+                                    <div class="factor-slider">
+                                        <div class="factor-label">
+                                            <span>质量因子</span>
+                                            <span class="factor-desc">ROE、资产负债率</span>
+                                        </div>
+                                        <input type="range" min="0" max="50" value="25" id="factorQuality" oninput="updateFactorDisplay()">
+                                        <span class="factor-value" id="factorQualityDisplay">25%</span>
+                                    </div>
+                                    <div class="factor-slider">
+                                        <div class="factor-label">
+                                            <span>动量因子</span>
+                                            <span class="factor-desc">3/6个月涨幅</span>
+                                        </div>
+                                        <input type="range" min="0" max="50" value="20" id="factorMomentum" oninput="updateFactorDisplay()">
+                                        <span class="factor-value" id="factorMomentumDisplay">20%</span>
+                                    </div>
+                                    <div class="factor-slider">
+                                        <div class="factor-label">
+                                            <span>情绪因子</span>
+                                            <span class="factor-desc">分析师评级、NLP情绪</span>
+                                        </div>
+                                        <input type="range" min="0" max="50" value="15" id="factorSentiment" oninput="updateFactorDisplay()">
+                                        <span class="factor-value" id="factorSentimentDisplay">15%</span>
+                                    </div>
+                                </div>
+                                <button class="btn-primary" onclick="runScreening()" style="margin-top:16px;width:100%">运行AI选股模型</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="card" style="margin-top:20px">
+                        <div class="card-header">
+                            <h3>选股结果</h3>
+                            <span id="stockCount" class="card-badge">20只</span>
+                        </div>
+                        <div class="card-body" style="padding:0">
+                            <div class="stock-table-wrapper">
+                                <table class="stock-table" id="stockTable">
+                                    <thead>
+                                        <tr>
+                                            <th>排名</th>
+                                            <th>代码</th>
+                                            <th>名称</th>
+                                            <th>行业</th>
+                                            <th>现价</th>
+                                            <th>PE</th>
+                                            <th>ROE%</th>
+                                            <th>综合评分</th>
+                                            <th>AI选股理由</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="stockTableBody"></tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="screening-charts" style="margin-top:20px">
+                        <div class="card">
+                            <div class="card-header"><h3>因子得分雷达对比（Top 5）</h3></div>
+                            <div class="card-body">
+                                <div id="factorRadar" style="width:100%;height:350px;"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ========== 我的组合 ========== -->
+                <div class="page-content" id="page-portfolio">
+                    <div class="portfolio-summary" id="portfolioSummary"></div>
+
+                    <div class="portfolio-grid">
+                        <div class="card" style="grid-column: 1 / -1">
+                            <div class="card-header">
+                                <h3>组合净值走势 vs 沪深300</h3>
+                                <div class="card-actions">
+                                    <button class="btn-sm active">近半年</button>
+                                    <button class="btn-sm">近一年</button>
+                                </div>
+                            </div>
+                            <div class="card-body">
+                                <div id="portfolioChart" style="width:100%;height:320px;"></div>
+                            </div>
+                        </div>
+
+                        <div class="card">
+                            <div class="card-header">
+                                <h3>持仓明细</h3>
+                                <div class="card-actions">
+                                    <button class="btn-sm active" id="holdingTabStock" onclick="switchHoldingTab('stock')">股票</button>
+                                    <button class="btn-sm" id="holdingTabFund" onclick="switchHoldingTab('fund')">基金</button>
+                                </div>
+                            </div>
+                            <div class="card-body" style="padding:0">
+                                <table class="stock-table compact" id="holdingsTable">
+                                    <thead>
+                                        <tr>
+                                            <th>名称</th>
+                                            <th>类型</th>
+                                            <th>持仓</th>
+                                            <th>现价</th>
+                                            <th>盈亏</th>
+                                            <th>收益率</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="holdingsBody"></tbody>
+                                </table>
+                                <div id="holdingsPagination" class="holdings-pagination"></div>
+                            </div>
+                        </div>
+
+                        <div class="card">
+                            <div class="card-header"><h3>风险指标</h3></div>
+                            <div class="card-body">
+                                <div id="riskMetrics" class="risk-metrics-grid"></div>
+                            </div>
+                        </div>
+
+                        <div class="card">
+                            <div class="card-header"><h3>行业分布</h3></div>
+                            <div class="card-body">
+                                <div id="industryPie" style="width:100%;height:250px;"></div>
+                            </div>
+                        </div>
+
+                        <div class="card">
+                            <div class="card-header">
+                                <h3>AI 调仓建议</h3>
+                                <span class="card-badge ai-badge">智能分析</span>
+                            </div>
+                            <div class="card-body">
+                                <div id="rebalanceAlerts" class="rebalance-alerts"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ========== AI 助手 ========== -->
+                <div class="page-content" id="page-chat">
+                    <div class="chat-container">
+                        <div class="chat-header">
+                            <div class="chat-ai-info">
+                                <div class="chat-ai-avatar">
+                                    <svg viewBox="0 0 32 32" fill="none">
+                                        <rect width="32" height="32" rx="8" fill="#3b82f6"/>
+                                        <path d="M16 8a3 3 0 100 6 3 3 0 000-6zM10 22c0-3.3 2.7-6 6-6s6 2.7 6 6" stroke="white" stroke-width="2" stroke-linecap="round"/>
+                                    </svg>
+                                </div>
+                                <div>
+                                    <div class="chat-ai-name">智投星 AI 助手</div>
+                                    <div class="chat-ai-model">FinGPT-v3 · 金融专业大模型</div>
+                                </div>
+                            </div>
+                            <div class="chat-header-tags">
+                                <span class="tag">市场分析</span>
+                                <span class="tag">选股建议</span>
+                                <span class="tag">资产配置</span>
+                                <span class="tag">风险管理</span>
+                                <span class="tag">投资教育</span>
+                            </div>
+                        </div>
+                        <div class="chat-messages" id="chatMessages">
+                            <div class="chat-welcome">
+                                <h3>您好，我是智投星AI助手</h3>
+                                <p>我可以为您提供专业的投资分析和建议，请问有什么可以帮您？</p>
+                                <div class="chat-quick-actions">
+                                    <button onclick="sendQuickChat('当前市场行情如何？')">当前市场行情</button>
+                                    <button onclick="sendQuickChat('帮我推荐几只股票')">AI选股推荐</button>
+                                    <button onclick="sendQuickChat('如何进行资产配置？')">资产配置建议</button>
+                                    <button onclick="sendQuickChat('如何管理投资风险？')">风险管理策略</button>
+                                    <button onclick="sendQuickChat('我想学习投资知识')">投资入门学习</button>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="chat-input-area">
+                            <div class="chat-input-wrapper">
+                                <input type="text" id="chatInput" placeholder="输入您的投资问题..." onkeypress="if(event.key==='Enter')sendChat()">
+                                <button class="chat-send-btn" onclick="sendChat()">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+                                </button>
+                            </div>
+                            <div class="chat-disclaimer">AI 投顾助手仅提供参考建议，不构成投资决策依据。投资有风险，入市需谨慎。</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ========== 投教中心 ========== -->
+                <div class="page-content" id="page-education">
+                    <div class="edu-header">
+                        <h2>投资者教育中心</h2>
+                        <p>系统化学习投资知识，提升投资决策能力</p>
+                    </div>
+                    <div class="edu-grid" id="eduGrid"></div>
+                    <div class="card" style="margin-top:24px">
+                        <div class="card-header">
+                            <h3>AI 在智能投顾中的核心技术</h3>
+                            <span class="card-badge ai-badge">Tech Stack</span>
+                        </div>
+                        <div class="card-body">
+                            <div class="tech-grid">
+                                <div class="tech-card">
+                                    <div class="tech-icon" style="background:linear-gradient(135deg,#3b82f6,#8b5cf6)">ML</div>
+                                    <h4>机器学习</h4>
+                                    <p>多因子选股模型、收益预测、风险评估，利用随机森林、XGBoost等算法挖掘市场规律</p>
+                                </div>
+                                <div class="tech-card">
+                                    <div class="tech-icon" style="background:linear-gradient(135deg,#10b981,#059669)">NLP</div>
+                                    <h4>自然语言处理</h4>
+                                    <p>研报解读、新闻情绪分析、智能客服对话，利用大语言模型理解金融文本语义</p>
+                                </div>
+                                <div class="tech-card">
+                                    <div class="tech-icon" style="background:linear-gradient(135deg,#f59e0b,#d97706)">KG</div>
+                                    <h4>知识图谱</h4>
+                                    <p>构建股票关联图谱、行业上下游关系、事件传导链，实现智能化关联分析</p>
+                                </div>
+                                <div class="tech-card">
+                                    <div class="tech-icon" style="background:linear-gradient(135deg,#ef4444,#dc2626)">RL</div>
+                                    <h4>强化学习</h4>
+                                    <p>动态资产配置、自动化交易策略、智能再平衡，通过环境交互优化决策</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </main>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/main.js', v=asset_version) }}"></script>
+</body>
+</html>
