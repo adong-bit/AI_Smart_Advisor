@@ -4,6 +4,7 @@ let riskQuestions = [];
 let currentQuestion = 0;
 let userAnswers = [];
 let riskProfile = null;
+let riskResultData = null;
 let allocationData = null;
 let rawKlineData = [];
 let currentKlinePeriod = 'day';
@@ -14,6 +15,30 @@ let currentHoldingTab = 'stock';
 let currentHoldingPage = 1;
 const HOLDINGS_PAGE_SIZE = 10;
 const RISK_STORAGE_KEY = 'smartAdvisorRiskResultV1';
+const HOLDINGS_STORAGE_KEY = 'smartAdvisorMockHoldingsV1';
+let portfolioRawData = null;
+let selectedAddAsset = null;
+const LOCAL_FUND_SUGGEST_POOL = [
+    { code: '161725', name: '招商中证白酒指数(LOF)', category: 'LOF' },
+    { code: '159915', name: '创业板ETF', category: 'ETF' },
+    { code: '510300', name: '沪深300ETF', category: 'ETF' },
+    { code: '005827', name: '易方达蓝筹精选混合', category: '混合型' },
+    { code: '003095', name: '中欧医疗健康混合A', category: '混合型' },
+    { code: '012348', name: '富国中证新能源汽车指数A', category: '指数型' },
+    { code: '009865', name: '招商中证白酒指数A', category: '指数型' },
+    { code: '000001', name: '华夏成长混合', category: '混合型' }
+];
+const LOCAL_STOCK_SUGGEST_POOL = [
+    { code: '600519', name: '贵州茅台', category: '股票' },
+    { code: '300750', name: '宁德时代', category: '股票' },
+    { code: '300502', name: '新易盛', category: '股票' },
+    { code: '002594', name: '比亚迪', category: '股票' },
+    { code: '601318', name: '中国平安', category: '股票' },
+    { code: '600036', name: '招商银行', category: '股票' },
+    { code: '000858', name: '五粮液', category: '股票' },
+    { code: '000333', name: '美的集团', category: '股票' },
+    { code: '601899', name: '紫金矿业', category: '股票' }
+];
 
 function saveRiskResult(data) {
     if (!data || !data.profile || !data.allocation) return;
@@ -30,12 +55,25 @@ function saveRiskResult(data) {
     }
 }
 
+function getDefaultRadar() {
+    return {
+        risk_tolerance: 3,
+        investment_exp: 3,
+        financial_knowledge: 3,
+        income_stability: 3,
+        investment_horizon: 3
+    };
+}
+
 function loadRiskResult() {
     try {
         const raw = localStorage.getItem(RISK_STORAGE_KEY);
         if (!raw) return null;
         const parsed = JSON.parse(raw);
         if (!parsed || !parsed.profile || !parsed.allocation) return null;
+        parsed.radar = parsed.radar || getDefaultRadar();
+        parsed.score = typeof parsed.score === 'number' ? parsed.score : 30;
+        parsed.max_score = typeof parsed.max_score === 'number' ? parsed.max_score : 50;
         return parsed;
     } catch (e) {
         console.warn('Failed to load risk result:', e);
@@ -55,11 +93,11 @@ function restoreRiskAssessmentUI() {
     const saved = loadRiskResult();
     if (!saved) return;
     riskProfile = saved.profile;
+    riskResultData = saved;
     allocationData = saved.allocation;
     document.getElementById('riskIntro').classList.add('hidden');
     document.getElementById('riskQuiz').classList.add('hidden');
     document.getElementById('riskResult').classList.remove('hidden');
-    renderResult(saved);
 }
 
 // ==================== Page Navigation ====================
@@ -78,6 +116,7 @@ function switchPage(page) {
     currentPage = page;
 
     if (page === 'dashboard') loadDashboard();
+    if (page === 'risk' && riskResultData) renderResult(riskResultData);
     if (page === 'screening') runScreening();
     if (page === 'portfolio') loadPortfolio();
     if (page === 'education') loadEducation();
@@ -569,6 +608,7 @@ async function submitAssessment() {
         });
         const data = await res.json();
         riskProfile = data.profile;
+        riskResultData = data;
         allocationData = data.allocation;
         saveRiskResult(data);
 
@@ -581,20 +621,29 @@ async function submitAssessment() {
 }
 
 function renderResult(data) {
-    renderScoreRing(data.score, data.max_score, data.profile);
+    const safeData = {
+        ...data,
+        score: typeof data?.score === 'number' ? data.score : 30,
+        max_score: typeof data?.max_score === 'number' ? data.max_score : 50,
+        profile: data?.profile || '平衡型',
+        allocation: data?.allocation || { description: '', allocation: [] },
+        radar: data?.radar || getDefaultRadar()
+    };
+    renderScoreRing(safeData.score, safeData.max_score, safeData.profile);
 
     const profileColors = { '保守型': '#3b82f6', '稳健型': '#10b981', '平衡型': '#f59e0b', '进取型': '#f97316', '激进型': '#ef4444' };
-    const color = profileColors[data.profile] || '#3b82f6';
-    document.getElementById('resultProfile').textContent = `您的风险画像：${data.profile}`;
+    const color = profileColors[safeData.profile] || '#3b82f6';
+    document.getElementById('resultProfile').textContent = `您的风险画像：${safeData.profile}`;
     document.getElementById('resultProfile').style.color = color;
-    document.getElementById('resultDesc').textContent = data.allocation.description;
+    document.getElementById('resultDesc').textContent = safeData.allocation.description || '已为您生成个性化配置建议。';
 
-    renderRadarChart(data.radar);
-    renderAllocationPreview(data.allocation);
+    renderRadarChart(safeData.radar);
+    renderAllocationPreview(safeData.allocation);
 }
 
 function renderScoreRing(score, max, profile) {
-    const chart = echarts.init(document.getElementById('resultScoreRing'));
+    const dom = document.getElementById('resultScoreRing');
+    const chart = echarts.getInstanceByDom(dom) || echarts.init(dom);
     const profileColors = { '保守型': '#3b82f6', '稳健型': '#10b981', '平衡型': '#f59e0b', '进取型': '#f97316', '激进型': '#ef4444' };
     const color = profileColors[profile] || '#3b82f6';
 
@@ -616,7 +665,9 @@ function renderScoreRing(score, max, profile) {
 }
 
 function renderRadarChart(radar) {
-    const chart = echarts.init(document.getElementById('radarChart'));
+    const safeRadar = radar || getDefaultRadar();
+    const dom = document.getElementById('radarChart');
+    const chart = echarts.getInstanceByDom(dom) || echarts.init(dom);
     chart.setOption({
         backgroundColor: 'transparent',
         radar: {
@@ -635,7 +686,13 @@ function renderRadarChart(radar) {
         series: [{
             type: 'radar',
             data: [{
-                value: [radar.risk_tolerance, radar.investment_exp, radar.financial_knowledge, radar.income_stability, radar.investment_horizon],
+                value: [
+                    safeRadar.risk_tolerance ?? 3,
+                    safeRadar.investment_exp ?? 3,
+                    safeRadar.financial_knowledge ?? 3,
+                    safeRadar.income_stability ?? 3,
+                    safeRadar.investment_horizon ?? 3
+                ],
                 areaStyle: { color: 'rgba(59,130,246,0.2)' },
                 lineStyle: { color: '#3b82f6', width: 2 },
                 itemStyle: { color: '#3b82f6' }
@@ -646,7 +703,9 @@ function renderRadarChart(radar) {
 }
 
 function renderAllocationPreview(alloc) {
-    const chart = echarts.init(document.getElementById('allocationPreview'));
+    const allocItems = Array.isArray(alloc?.allocation) ? alloc.allocation : [];
+    const dom = document.getElementById('allocationPreview');
+    const chart = echarts.getInstanceByDom(dom) || echarts.init(dom);
     chart.setOption({
         backgroundColor: 'transparent',
         tooltip: { trigger: 'item', formatter: '{b}: {d}%', backgroundColor: '#1a2332', borderColor: '#334155', textStyle: { color: '#e2e8f0' }},
@@ -656,7 +715,7 @@ function renderAllocationPreview(alloc) {
             label: { show: true, color: '#94a3b8', fontSize: 12, formatter: '{b}\n{d}%' },
             labelLine: { lineStyle: { color: '#334155' }},
             itemStyle: { borderColor: '#1a2332', borderWidth: 2 },
-            data: alloc.allocation.map(a => ({ name: a.name, value: a.value, itemStyle: { color: a.color }}))
+            data: allocItems.map(a => ({ name: a.name, value: a.value, itemStyle: { color: a.color }}))
         }]
     });
     window.addEventListener('resize', () => chart.resize());
@@ -666,6 +725,7 @@ function retakeAssessment() {
     document.getElementById('riskResult').classList.add('hidden');
     document.getElementById('riskIntro').classList.remove('hidden');
     riskProfile = null;
+    riskResultData = null;
     allocationData = null;
     clearRiskResult();
 }
@@ -801,14 +861,16 @@ function renderStockTable(stocks) {
     tbody.innerHTML = stocks.map((s, i) => {
         const score = s.scores.total;
         const scoreCls = score >= 65 ? 'score-high' : score >= 50 ? 'score-mid' : 'score-low';
+        const peText = (s.pe === null || s.pe === undefined) ? '--' : s.pe;
+        const roeText = (s.roe === null || s.roe === undefined) ? '--' : `${s.roe}%`;
         return `<tr>
             <td><strong>${i + 1}</strong></td>
             <td style="color:var(--text-muted);font-family:monospace">${s.code}</td>
             <td><strong>${s.name}</strong></td>
             <td>${s.industry}</td>
             <td>¥${s.price.toFixed(2)}</td>
-            <td>${s.pe}</td>
-            <td>${s.roe}%</td>
+            <td>${peText}</td>
+            <td>${roeText}</td>
             <td><span class="score-badge ${scoreCls}">${score.toFixed(1)}</span></td>
             <td><span class="ai-reason-text">${s.ai_reason}</span></td>
         </tr>`;
@@ -855,9 +917,9 @@ async function loadPortfolio() {
     try {
         const res = await fetch('/api/portfolio');
         const data = await res.json();
-        renderPortfolioSummary(data);
-        renderPortfolioChart(data.history);
-        holdingsData = data.holdings || [];
+        portfolioRawData = data;
+        holdingsData = loadOrInitMockHoldings(data.holdings || []);
+        refreshPortfolioByHoldings();
         renderHoldingTabs();
         renderHoldings();
         renderRiskMetrics(data.risk_metrics);
@@ -896,6 +958,69 @@ function renderPortfolioSummary(data) {
         </div>`;
 }
 
+function normalizeHolding(item) {
+    const type = item.asset_type === '基金' ? '基金' : '股票';
+    const shares = Number(item.shares) || 0;
+    const cost = Number(item.cost) || 0;
+    const current = Number(item.current) || 0;
+    const unit = item.unit || (type === '基金' ? '份' : '股');
+    const profit = (current - cost) * shares;
+    const returnPct = cost > 0 ? ((current - cost) / cost) * 100 : 0;
+    return {
+        code: (item.code || '').toString().trim(),
+        name: (item.name || '').toString().trim(),
+        asset_type: type,
+        shares: Math.round(shares),
+        unit,
+        cost: +cost.toFixed(2),
+        current: +current.toFixed(2),
+        market_value: +(current * shares).toFixed(2),
+        profit: +profit.toFixed(2),
+        return_pct: +returnPct.toFixed(2)
+    };
+}
+
+function saveMockHoldings() {
+    try {
+        localStorage.setItem(HOLDINGS_STORAGE_KEY, JSON.stringify(holdingsData || []));
+    } catch (e) {
+        console.warn('Failed to save holdings:', e);
+    }
+}
+
+function loadOrInitMockHoldings(defaultHoldings) {
+    try {
+        const raw = localStorage.getItem(HOLDINGS_STORAGE_KEY);
+        if (raw) {
+            const parsed = JSON.parse(raw);
+            if (Array.isArray(parsed)) return parsed.map(normalizeHolding);
+        }
+    } catch (e) {
+        console.warn('Failed to load holdings:', e);
+    }
+    const initial = (defaultHoldings || []).map(normalizeHolding);
+    holdingsData = initial;
+    saveMockHoldings();
+    return initial;
+}
+
+function refreshPortfolioByHoldings() {
+    if (!portfolioRawData) return;
+    const totalCost = holdingsData.reduce((sum, h) => sum + h.shares * h.cost, 0);
+    const totalCurrent = holdingsData.reduce((sum, h) => sum + h.shares * h.current, 0);
+    const totalProfit = totalCurrent - totalCost;
+    const totalReturn = totalCost > 0 ? (totalProfit / totalCost) * 100 : 0;
+    renderPortfolioSummary({
+        ...portfolioRawData,
+        holdings: holdingsData,
+        total_cost: totalCost,
+        total_value: totalCurrent,
+        total_profit: totalProfit,
+        total_return: totalReturn
+    });
+    renderPortfolioChart(portfolioRawData.history || []);
+}
+
 function renderPortfolioChart(history) {
     const chart = echarts.init(document.getElementById('portfolioChart'));
     chart.setOption({
@@ -932,6 +1057,7 @@ function switchHoldingTab(tab) {
     currentHoldingPage = 1;
     renderHoldingTabs();
     renderHoldings();
+    updateAddHoldingModalByTab();
 }
 
 function renderHoldings() {
@@ -946,7 +1072,7 @@ function renderHoldings() {
 
     if (!filtered.length) {
         document.getElementById('holdingsBody').innerHTML =
-            `<tr><td colspan="6" style="text-align:center;color:var(--text-muted);padding:14px 0;">暂无${currentHoldingTab === 'fund' ? '基金' : '股票'}持仓</td></tr>`;
+            `<tr><td colspan="7" style="text-align:center;color:var(--text-muted);padding:14px 0;">暂无${currentHoldingTab === 'fund' ? '基金' : '股票'}持仓</td></tr>`;
         renderHoldingsPagination(0, 1);
         return;
     }
@@ -966,6 +1092,7 @@ function renderHoldings() {
             <td>¥${h.current.toFixed(2)}</td>
             <td class="${cls}">${h.profit >= 0 ? '+' : ''}${h.profit.toFixed(0)}</td>
             <td class="${cls}">${h.return_pct >= 0 ? '+' : ''}${h.return_pct.toFixed(2)}%</td>
+            <td><button class="table-danger-btn" onclick="deleteHolding('${h.code}', '${h.asset_type}')">删除</button></td>
         </tr>`;
     }).join('');
 
@@ -998,6 +1125,357 @@ function renderHoldingsPagination(totalItems, totalPages) {
         ${pagesHtml}
         <button class="page-btn" ${nextDisabled} onclick="changeHoldingPage(${Math.min(totalPages, currentHoldingPage + 1)})">下一页</button>
     `;
+}
+
+function openAddHoldingModal() {
+    const modal = document.getElementById('addHoldingModal');
+    if (!modal) return;
+    updateAddHoldingModalByTab();
+    initAddFundSuggest();
+    modal.classList.remove('hidden');
+}
+
+function updateAddHoldingModalByTab() {
+    const label = document.getElementById('addAssetKeywordLabel');
+    const input = document.getElementById('addFundKeyword');
+    if (!label || !input) return;
+    if (currentHoldingTab === 'fund') {
+        label.childNodes[0].nodeValue = '基金名称或代码';
+        input.placeholder = '先输入关键词搜索（如 白酒 / 1617）';
+    } else {
+        label.childNodes[0].nodeValue = '股票名称或代码';
+        input.placeholder = '先输入关键词搜索（如 宁德 / 300750）';
+    }
+}
+
+function closeAddHoldingModal() {
+    const modal = document.getElementById('addHoldingModal');
+    if (!modal) return;
+    modal.classList.add('hidden');
+    const suggest = document.getElementById('addFundSuggest');
+    if (suggest) {
+        suggest.classList.remove('show');
+        suggest.innerHTML = '';
+    }
+    selectedAddAsset = null;
+}
+
+function submitAddHolding() {
+    const keyword = document.getElementById('addFundKeyword').value.trim();
+    const amount = Number(document.getElementById('addAmount').value);
+    const profit = Number(document.getElementById('addProfit').value);
+
+    if (!keyword || amount <= 0 || Number.isNaN(profit)) {
+        alert(`请完整填写：${currentHoldingTab === 'fund' ? '基金' : '股票'}名称或代码、持有金额、持有收益。`);
+        return;
+    }
+
+    if (!selectedAddAsset || !selectedAddAsset.code) {
+        alert(`请从模糊匹配结果中选择${currentHoldingTab === 'fund' ? '基金' : '股票'}，不能只手动输入文本。`);
+        return;
+    }
+
+    const asset = {
+        code: selectedAddAsset.code,
+        name: selectedAddAsset.name,
+        asset_type: selectedAddAsset.asset_type || (currentHoldingTab === 'fund' ? '基金' : '股票')
+    };
+    const currentValue = amount + profit;
+    if (currentValue <= 0) {
+        alert('持有金额 + 持有收益 必须大于 0。');
+        return;
+    }
+    const currentPrice = 1;
+    const shares = Math.max(1, Math.round(currentValue / currentPrice));
+    const costPrice = amount / shares;
+
+    const assetType = asset.asset_type === '股票' ? '股票' : '基金';
+    const unit = assetType === '基金' ? '份' : '股';
+    const exists = holdingsData.some(h => h.code === asset.code && h.asset_type === assetType);
+    if (exists) {
+        alert('该资产已存在，请先删除后再添加。');
+        return;
+    }
+
+    holdingsData.push(normalizeHolding({
+        code: asset.code,
+        name: asset.name,
+        asset_type: assetType,
+        shares,
+        unit,
+        cost: costPrice,
+        current: currentPrice
+    }));
+    saveMockHoldings();
+    refreshPortfolioByHoldings();
+    currentHoldingTab = assetType === '基金' ? 'fund' : 'stock';
+    renderHoldingTabs();
+    renderHoldings();
+    closeAddHoldingModal();
+}
+
+let fundSuggestTimer = null;
+function getLocalFundSuggestions(keyword, limit = 12) {
+    const q = (keyword || '').trim().toLowerCase();
+    if (!q) return [];
+    return LOCAL_FUND_SUGGEST_POOL
+        .filter(f => f.code.includes(q) || f.name.toLowerCase().includes(q))
+        .slice(0, limit);
+}
+
+function getLocalStockSuggestions(keyword, limit = 12) {
+    const q = (keyword || '').trim().toLowerCase();
+    if (!q) return [];
+    return LOCAL_STOCK_SUGGEST_POOL
+        .filter(s => s.code.includes(q) || s.name.toLowerCase().includes(q))
+        .slice(0, limit);
+}
+
+function mergeLocalAssetSuggestions(keyword, limit = 12) {
+    const stocks = getLocalStockSuggestions(keyword, limit).map(x => ({ ...x, asset_type: '股票' }));
+    const funds = getLocalFundSuggestions(keyword, limit).map(x => ({ ...x, asset_type: '基金' }));
+    const merged = [...stocks, ...funds];
+    const seen = new Set();
+    const dedup = [];
+    for (const item of merged) {
+        const key = `${item.asset_type}-${item.code}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        dedup.push(item);
+        if (dedup.length >= limit) break;
+    }
+    return dedup;
+}
+
+function initAddFundSuggest() {
+    const input = document.getElementById('addFundKeyword');
+    const suggest = document.getElementById('addFundSuggest');
+    if (!input || !suggest || input.dataset.bindSuggest === '1') return;
+    input.dataset.bindSuggest = '1';
+
+    const hideSuggest = () => {
+        suggest.classList.remove('show');
+        suggest.innerHTML = '';
+    };
+
+    input.addEventListener('input', () => {
+        selectedAddAsset = null;
+        if (fundSuggestTimer) clearTimeout(fundSuggestTimer);
+        fundSuggestTimer = setTimeout(async () => {
+            const q = input.value.trim();
+            if (!q) {
+                hideSuggest();
+                return;
+            }
+            suggest.innerHTML = `<div class="search-suggest-item"><div class="search-suggest-meta">正在搜索...</div></div>`;
+            suggest.classList.add('show');
+            try {
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 6000);
+                const res = await fetch(`/api/asset-search?q=${encodeURIComponent(q)}&limit=12`, {
+                    signal: controller.signal
+                });
+                clearTimeout(timeoutId);
+                let items = [];
+                if (res.ok) {
+                    const data = await res.json();
+                    items = data.items || [];
+                } else {
+                    // 兼容后端未重启到 asset-search 的情况
+                    const [stockRes, fundRes] = await Promise.all([
+                        fetch(`/api/stock-search?q=${encodeURIComponent(q)}&limit=6`),
+                        fetch(`/api/fund-search?q=${encodeURIComponent(q)}&limit=6`)
+                    ]);
+                    const stockData = stockRes.ok ? await stockRes.json() : { items: [] };
+                    const fundData = fundRes.ok ? await fundRes.json() : { items: [] };
+                    const stockItems = (stockData.items || []).map(x => ({ ...x, asset_type: '股票' }));
+                    const fundItems = (fundData.items || []).map(x => ({ ...x, asset_type: '基金' }));
+                    items = [...stockItems, ...fundItems];
+                }
+                if (!items.length) items = mergeLocalAssetSuggestions(q, 12);
+                if (!items.length) {
+                    suggest.innerHTML = `<div class="search-suggest-item"><div class="search-suggest-meta">未找到匹配资产，请更换关键词</div></div>`;
+                    suggest.classList.add('show');
+                    return;
+                }
+                suggest.innerHTML = items.map(f =>
+                    `<div class="search-suggest-item add-fund-item" data-code="${f.code}" data-name="${f.name}" data-asset-type="${f.asset_type || '基金'}">
+                        <div class="search-suggest-title">${f.name}</div>
+                        <div class="search-suggest-meta">${f.code} · ${f.category || f.asset_type || '资产'}</div>
+                    </div>`
+                ).join('');
+                suggest.classList.add('show');
+            } catch (e) {
+                const fallback = mergeLocalAssetSuggestions(q, 12);
+                if (!fallback.length) {
+                    suggest.innerHTML = `<div class="search-suggest-item"><div class="search-suggest-meta">搜索失败，请稍后重试</div></div>`;
+                    suggest.classList.add('show');
+                    return;
+                }
+                suggest.innerHTML = fallback.map(f =>
+                    `<div class="search-suggest-item add-fund-item" data-code="${f.code}" data-name="${f.name}" data-asset-type="${f.asset_type || '基金'}">
+                        <div class="search-suggest-title">${f.name}</div>
+                        <div class="search-suggest-meta">${f.code} · ${f.category || f.asset_type || '资产'}</div>
+                    </div>`
+                ).join('');
+                suggest.classList.add('show');
+            }
+        }, 250);
+    });
+
+    suggest.addEventListener('click', (e) => {
+        const item = e.target.closest('.add-fund-item');
+        if (!item) return;
+        const code = item.getAttribute('data-code') || '';
+        const name = item.getAttribute('data-name') || '';
+        const assetType = item.getAttribute('data-asset-type') || '基金';
+        if (!code || !name) return;
+        selectedAddAsset = { code, name, asset_type: assetType };
+        input.value = `${name} (${code})`;
+        hideSuggest();
+    });
+
+    document.addEventListener('click', (e) => {
+        const modal = document.getElementById('addHoldingModal');
+        if (!modal || modal.classList.contains('hidden')) return;
+        if (!e.target.closest('#addFundKeyword') && !e.target.closest('#addFundSuggest')) {
+            hideSuggest();
+        }
+    });
+}
+
+function triggerScreenshotImport() {
+    const input = document.getElementById('screenshotInput');
+    if (!input) return;
+    input.value = '';
+    input.click();
+}
+
+async function handleScreenshotImport(event) {
+    const file = event?.target?.files?.[0];
+    if (!file) return;
+    const formData = new FormData();
+    formData.append('file', file);
+    try {
+        const res = await fetch('/api/portfolio-ocr-import', {
+            method: 'POST',
+            body: formData
+        });
+        const data = await res.json();
+        const parsed = data.items || [];
+        if (!res.ok || !data.ok || !parsed.length) {
+            alert(data.message || 'OCR识别失败，请检查截图内容。');
+            return;
+        }
+        let added = 0;
+        let updated = 0;
+        parsed.forEach(item => {
+            const merged = upsertHolding(item);
+            if (merged === 'added') added += 1;
+            if (merged === 'updated') updated += 1;
+        });
+        saveMockHoldings();
+        refreshPortfolioByHoldings();
+        renderHoldings();
+        alert(`截图OCR导入完成：新增 ${added} 条，合并 ${updated} 条。`);
+    } catch (e) {
+        alert('OCR服务调用失败。请确认后端已安装并配置 Tesseract。');
+    }
+}
+
+function mockParseHoldingsFromScreenshot(fileName) {
+    const text = (fileName || '').toLowerCase();
+    const stockCandidates = [
+        { code: '300502', name: '新易盛' },
+        { code: '300750', name: '宁德时代' },
+        { code: '600519', name: '贵州茅台' },
+        { code: '002594', name: '比亚迪' },
+        { code: '601318', name: '中国平安' }
+    ];
+    const fundCandidates = [
+        { code: '510300', name: '沪深300ETF' },
+        { code: '159915', name: '创业板ETF' },
+        { code: '161725', name: '招商中证白酒指数(LOF)' },
+        { code: '005827', name: '易方达蓝筹精选混合' }
+    ];
+
+    const pickStock = (code, name) => ({
+        code,
+        name,
+        asset_type: '股票',
+        shares: randomInt(100, 1800),
+        cost: randomFloat(8, 120),
+        current: randomFloat(8, 130),
+    });
+    const pickFund = (code, name) => ({
+        code,
+        name,
+        asset_type: '基金',
+        shares: randomInt(2000, 30000),
+        cost: randomFloat(0.8, 2.6),
+        current: randomFloat(0.8, 2.9),
+    });
+
+    if (/新易盛|300502/.test(fileName)) {
+        return [pickStock('300502', '新易盛')];
+    }
+    if (/fund|基金|etf|lof/.test(text)) {
+        return shuffle(fundCandidates).slice(0, 2).map(x => pickFund(x.code, x.name));
+    }
+    if (/stock|股票|持仓|a股/.test(text)) {
+        return shuffle(stockCandidates).slice(0, 2).map(x => pickStock(x.code, x.name));
+    }
+    const mix = [];
+    mix.push(pickStock(stockCandidates[0].code, stockCandidates[0].name));
+    mix.push(pickFund(fundCandidates[0].code, fundCandidates[0].name));
+    return mix;
+}
+
+function upsertHolding(item) {
+    const normalized = normalizeHolding(item);
+    const idx = holdingsData.findIndex(h => h.code === normalized.code && h.asset_type === normalized.asset_type);
+    if (idx < 0) {
+        holdingsData.push(normalized);
+        return 'added';
+    }
+    const old = holdingsData[idx];
+    const totalShares = old.shares + normalized.shares;
+    const avgCost = totalShares > 0 ? ((old.cost * old.shares + normalized.cost * normalized.shares) / totalShares) : old.cost;
+    const avgCurrent = totalShares > 0 ? ((old.current * old.shares + normalized.current * normalized.shares) / totalShares) : old.current;
+    holdingsData[idx] = normalizeHolding({
+        ...old,
+        shares: totalShares,
+        cost: avgCost,
+        current: avgCurrent
+    });
+    return 'updated';
+}
+
+function randomInt(min, max) {
+    return Math.floor(Math.random() * (max - min + 1)) + min;
+}
+
+function randomFloat(min, max) {
+    return +(Math.random() * (max - min) + min).toFixed(2);
+}
+
+function shuffle(arr) {
+    const copy = arr.slice();
+    for (let i = copy.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [copy[i], copy[j]] = [copy[j], copy[i]];
+    }
+    return copy;
+}
+
+function deleteHolding(code, assetType) {
+    const target = holdingsData.find(h => h.code === code && h.asset_type === assetType);
+    if (!target) return;
+    if (!confirm(`确认删除持仓：${target.name}（${target.code}）？`)) return;
+    holdingsData = holdingsData.filter(h => !(h.code === code && h.asset_type === assetType));
+    saveMockHoldings();
+    refreshPortfolioByHoldings();
+    renderHoldings();
 }
 
 function renderRiskMetrics(metrics) {
@@ -1124,6 +1602,8 @@ function escapeHtml(text) {
 
 function formatMarkdown(text) {
     return text
+        .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>')
+        .replace(/(^|[\s(])(https?:\/\/[^\s<)]+)(?=$|[\s)])/g, '$1<a href="$2" target="_blank" rel="noopener noreferrer">$2</a>')
         .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
         .replace(/\n/g, '<br>');
 }
@@ -1212,8 +1692,9 @@ async function loadEducation() {
     try {
         const res = await fetch('/api/education');
         const data = await res.json();
-        document.getElementById('eduGrid').innerHTML = data.courses.map(c =>
-            `<div class="edu-card">
+        const courses = Array.isArray(data.courses) ? data.courses : [];
+        document.getElementById('eduGrid').innerHTML = courses.map(c =>
+            `<div class="edu-card" onclick="openEducationDetail(${c.id})">
                 <div class="edu-icon">${c.icon}</div>
                 <h4>${c.title}</h4>
                 <p>${c.desc}</p>
@@ -1226,9 +1707,35 @@ async function loadEducation() {
                 </div>
             </div>`
         ).join('');
+        window.__educationCourses = courses;
+        closeEducationDetail();
     } catch (e) {
         console.error('Failed to load education:', e);
     }
+}
+
+function openEducationDetail(courseId) {
+    const list = Array.isArray(window.__educationCourses) ? window.__educationCourses : [];
+    const course = list.find(c => Number(c.id) === Number(courseId));
+    if (!course) return;
+    const card = document.getElementById('eduDetailCard');
+    const title = document.getElementById('eduDetailTitle');
+    const meta = document.getElementById('eduDetailMeta');
+    const desc = document.getElementById('eduDetailDesc');
+    const topics = document.getElementById('eduDetailTopics');
+    if (!card || !title || !meta || !desc || !topics) return;
+
+    title.textContent = `${course.icon || ''} ${course.title}`.trim();
+    meta.textContent = `${course.level || '未分级'} · ${course.duration || '时长未知'}`;
+    desc.textContent = course.desc || '';
+    topics.innerHTML = (course.topics || []).map(t => `<span class="edu-topic">${t}</span>`).join('');
+    card.classList.remove('hidden');
+    card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function closeEducationDetail() {
+    const card = document.getElementById('eduDetailCard');
+    if (card) card.classList.add('hidden');
 }
 
 // ==================== Init ====================

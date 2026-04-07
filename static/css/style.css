@@ -601,6 +601,125 @@ body {
     cursor: not-allowed;
 }
 
+.table-danger-btn {
+    padding: 4px 8px;
+    border-radius: 6px;
+    border: 1px solid rgba(239, 68, 68, 0.4);
+    background: rgba(239, 68, 68, 0.08);
+    color: #fca5a5;
+    font-size: 12px;
+    cursor: pointer;
+}
+
+.table-danger-btn:hover {
+    background: rgba(239, 68, 68, 0.18);
+}
+
+/* 持仓表“操作”列固定在右侧，基金/股票都可直接看到删除按钮 */
+#holdingsTable th:last-child,
+#holdingsTable td:last-child {
+    position: sticky;
+    right: 0;
+    z-index: 2;
+    background: var(--bg-card);
+}
+
+#holdingsTable th:last-child {
+    z-index: 3;
+}
+
+.modal {
+    position: fixed;
+    inset: 0;
+    z-index: 200;
+}
+
+.modal-mask {
+    position: absolute;
+    inset: 0;
+    background: rgba(2, 6, 23, 0.7);
+}
+
+.modal-panel {
+    position: relative;
+    width: min(760px, calc(100vw - 40px));
+    margin: 80px auto;
+    background: var(--bg-card);
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+}
+
+.modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border);
+}
+
+.modal-close {
+    width: 30px;
+    height: 30px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 20px;
+    cursor: pointer;
+}
+
+.modal-body {
+    padding: 18px 20px;
+}
+
+.modal-form-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+}
+
+.modal-form-grid label {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--text-secondary);
+    position: relative;
+}
+
+.modal-form-grid input,
+.modal-form-grid select {
+    width: 100%;
+    height: 36px;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text-primary);
+    padding: 0 10px;
+    outline: none;
+}
+
+.modal-tip {
+    margin-top: 12px;
+    font-size: 12px;
+    color: var(--text-muted);
+}
+
+#addFundSuggest.search-suggest {
+    left: 0;
+    right: 0;
+    top: calc(100% + 6px);
+    max-height: 220px;
+}
+
+.modal-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    padding: 0 20px 18px;
+}
+
 .sentiment-hint {
     margin-top: 10px;
     padding: 10px 12px;
