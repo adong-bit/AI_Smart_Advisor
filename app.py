@@ -4,6 +4,9 @@ import math
 import re
 import os
 import io
+import time
+import threading
+import json
 from datetime import datetime, timedelta
 from market_data_akshare import get_market_data
 import akshare as ak
@@ -80,6 +83,127 @@ STOCKS = [
     {"code": "600809", "name": "山西汾酒", "industry": "白酒", "price": 228.50, "pe": 35.2, "pb": 12.5, "roe": 35.8, "revenue_growth": 25.8, "profit_growth": 30.2, "debt_ratio": 28.5, "market_cap": 2780, "dividend_yield": 1.2, "momentum_3m": 6.2, "momentum_6m": 14.5, "analyst_rating": 4.5, "sentiment": 0.82},
     {"code": "601012", "name": "隆基绿能", "industry": "光伏", "price": 22.80, "pe": 12.8, "pb": 2.1, "roe": 18.5, "revenue_growth": -5.2, "profit_growth": -12.5, "debt_ratio": 55.8, "market_cap": 1720, "dividend_yield": 1.5, "momentum_3m": -8.5, "momentum_6m": -15.2, "analyst_rating": 3.5, "sentiment": 0.42},
 ]
+
+
+def _median(values, default=0.0):
+    nums = sorted([float(v) for v in values if v is not None])
+    if not nums:
+        return float(default)
+    mid = len(nums) // 2
+    if len(nums) % 2 == 1:
+        return float(nums[mid])
+    return float((nums[mid - 1] + nums[mid]) / 2.0)
+
+
+def _build_industry_pe_roe_reference():
+    """
+    为智能选股构建行业 PE / ROE 参考值：
+    - 优先用于实时接口未返回时的稳定兜底
+    - 统一返回行业中位数，避免极端值影响
+    """
+    by_industry = {}
+    all_pe = []
+    all_roe = []
+    for item in STOCKS:
+        ind = str(item.get("industry", "")).strip() or "未知"
+        pe = item.get("pe")
+        roe = item.get("roe")
+        bucket = by_industry.setdefault(ind, {"pe": [], "roe": []})
+        if pe is not None:
+            bucket["pe"].append(float(pe))
+            all_pe.append(float(pe))
+        if roe is not None:
+            bucket["roe"].append(float(roe))
+            all_roe.append(float(roe))
+
+    ref = {
+        "industry": {},
+        "global": {
+            "pe": round(_median(all_pe, default=18.0), 2),
+            "roe": round(_median(all_roe, default=12.0), 2),
+        },
+    }
+    for ind, vals in by_industry.items():
+        ref["industry"][ind] = {
+            "pe": round(_median(vals["pe"], default=ref["global"]["pe"]), 2),
+            "roe": round(_median(vals["roe"], default=ref["global"]["roe"]), 2),
+        }
+    return ref
+
+
+PE_ROE_REFERENCE = _build_industry_pe_roe_reference()
+
+
+def _resolve_pe_roe(row, base_item, industry):
+    """
+    统一补全 PE / ROE：
+    1) 优先实时行情字段（若存在）
+    2) 其次使用基础样本值
+    3) 最后使用行业中位数兜底，保证“每只股票都展示”
+    """
+    # 兼容可能的不同字段命名
+    pe_keys = ["市盈率-动态", "市盈率", "PE", "pe"]
+    pb_keys = ["市净率", "PB", "pb"]
+    roe_keys = ["ROE", "roe", "净资产收益率", "ROEJQ"]
+
+    pe_val = None
+    pb_val = None
+    roe_val = None
+
+    for k in pe_keys:
+        if k in row:
+            pe_tmp = row.get(k)
+            try:
+                pe_tmp = float(str(pe_tmp).replace(",", "").strip())
+                if pe_tmp > 0:
+                    pe_val = pe_tmp
+                    break
+            except Exception:
+                continue
+
+    for k in pb_keys:
+        if k in row:
+            pb_tmp = row.get(k)
+            try:
+                pb_tmp = float(str(pb_tmp).replace(",", "").strip())
+                if pb_tmp > 0:
+                    pb_val = pb_tmp
+                    break
+            except Exception:
+                continue
+
+    for k in roe_keys:
+        if k in row:
+            roe_tmp = row.get(k)
+            try:
+                roe_tmp = float(str(roe_tmp).replace(",", "").strip().replace("%", ""))
+                if abs(roe_tmp) > 0:
+                    roe_val = roe_tmp
+                    break
+            except Exception:
+                continue
+
+    # 优先基础样本值（本地样本更稳定）
+    if pe_val is None and base_item and base_item.get("pe") is not None:
+        pe_val = float(base_item.get("pe"))
+    if roe_val is None and base_item and base_item.get("roe") is not None:
+        roe_val = float(base_item.get("roe"))
+
+    # 若有 PE+PB，可估算 ROE（ROE ~= PB / PE）
+    if roe_val is None and pe_val and pb_val and pe_val > 0:
+        roe_val = (pb_val / pe_val) * 100
+
+    # 行业兜底，确保每只都有值
+    industry_key = industry if industry in PE_ROE_REFERENCE["industry"] else "未知"
+    ind_ref = PE_ROE_REFERENCE["industry"].get(industry_key, {})
+    global_ref = PE_ROE_REFERENCE["global"]
+    if pe_val is None:
+        pe_val = ind_ref.get("pe", global_ref["pe"])
+    if roe_val is None:
+        roe_val = ind_ref.get("roe", global_ref["roe"])
+
+    return round(float(pe_val), 2), round(float(roe_val), 2)
+
 
 RISK_QUESTIONS = [
     {
@@ -322,6 +446,8 @@ FUND_SEARCH_POOL = [
     {"code": "010363", "name": "易方达竞争优势企业混合A", "category": "混合型"},
     {"code": "012348", "name": "富国中证新能源汽车指数A", "category": "指数型"},
     {"code": "015790", "name": "华夏上证50ETF联接A", "category": "ETF联接"},
+    {"code": "017810", "name": "东方人工智能主题混合A", "category": "混合型"},
+    {"code": "017811", "name": "东方人工智能主题混合C", "category": "混合型"},
     {"code": "110011", "name": "易方达中小盘混合", "category": "混合型"},
     {"code": "161725", "name": "招商中证白酒指数(LOF)", "category": "LOF"},
     {"code": "161903", "name": "万家行业优选混合(LOF)", "category": "LOF"},
@@ -333,8 +459,15 @@ FUND_SEARCH_POOL = [
 FUND_SEARCH_CACHE = {
     "loaded_at": None,
     "items": [],
+    "loading": False,
+    "failed_at": None,
 }
+FUND_SEARCH_CACHE_FILE = os.path.join(os.path.dirname(__file__), ".fund_search_cache.json")
 STOCK_SEARCH_CACHE = {
+    "loaded_at": None,
+    "items": [],
+}
+STOCK_SCREEN_RESULT_CACHE = {
     "loaded_at": None,
     "items": [],
 }
@@ -359,6 +492,116 @@ OCR_TEXT_ALIASES = {
 }
 
 
+def _call_with_timeout(fn, timeout_sec=8):
+    """
+    执行可能阻塞的函数并设置超时。
+    超时后立即返回 None，不等待底层任务结束。
+    """
+    state = {"done": False, "value": None}
+
+    def runner():
+        try:
+            state["value"] = fn()
+        except Exception:
+            state["value"] = None
+        finally:
+            state["done"] = True
+
+    t = threading.Thread(target=runner, daemon=True)
+    t.start()
+    t.join(timeout_sec)
+    if t.is_alive():
+        return None
+    return state["value"]
+
+
+def _load_fund_search_cache_from_disk():
+    try:
+        if not os.path.exists(FUND_SEARCH_CACHE_FILE):
+            return []
+        with open(FUND_SEARCH_CACHE_FILE, "r", encoding="utf-8") as f:
+            payload = json.load(f)
+        items = payload.get("items") if isinstance(payload, dict) else []
+        if not isinstance(items, list):
+            return []
+        clean_items = []
+        for x in items:
+            code = str((x or {}).get("code", "")).strip()
+            name = str((x or {}).get("name", "")).strip()
+            if not code or not name:
+                continue
+            clean_items.append({
+                "code": code,
+                "name": name,
+                "category": str((x or {}).get("category", "基金")).strip() or "基金",
+                "pinyin_short": str((x or {}).get("pinyin_short", "")).strip(),
+                "pinyin_full": str((x or {}).get("pinyin_full", "")).strip(),
+            })
+        return clean_items
+    except Exception:
+        return []
+
+
+def _save_fund_search_cache_to_disk(items):
+    try:
+        with open(FUND_SEARCH_CACHE_FILE, "w", encoding="utf-8") as f:
+            json.dump(
+                {
+                    "saved_at": datetime.now().isoformat(),
+                    "items": items,
+                },
+                f,
+                ensure_ascii=False,
+            )
+    except Exception:
+        pass
+
+
+def _refresh_fund_search_cache_async():
+    """
+    异步刷新基金全量搜索池：
+    - 避免请求线程阻塞
+    - 成功后更新缓存，失败则记录失败时间用于短期退避
+    """
+    if FUND_SEARCH_CACHE.get("loading"):
+        return
+
+    def runner():
+        FUND_SEARCH_CACHE["loading"] = True
+        try:
+            df = _call_with_timeout(ak.fund_name_em, timeout_sec=25)
+            items = []
+            if df is not None and not df.empty:
+                for _, row in df.iterrows():
+                    code = str(row.get("基金代码", "")).strip()
+                    name = str(row.get("基金简称", "")).strip()
+                    category = str(row.get("基金类型", "")).strip()
+                    pinyin_short = str(row.get("拼音缩写", "")).strip()
+                    pinyin_full = str(row.get("拼音全称", "")).strip()
+                    if not code or not name:
+                        continue
+                    items.append({
+                        "code": code,
+                        "name": name,
+                        "category": category or "基金",
+                        "pinyin_short": pinyin_short,
+                        "pinyin_full": pinyin_full,
+                    })
+            if items:
+                FUND_SEARCH_CACHE["loaded_at"] = datetime.now()
+                FUND_SEARCH_CACHE["items"] = items
+                FUND_SEARCH_CACHE["failed_at"] = None
+                _save_fund_search_cache_to_disk(items)
+            else:
+                FUND_SEARCH_CACHE["failed_at"] = datetime.now()
+        except Exception:
+            FUND_SEARCH_CACHE["failed_at"] = datetime.now()
+        finally:
+            FUND_SEARCH_CACHE["loading"] = False
+
+    threading.Thread(target=runner, daemon=True).start()
+
+
 def _get_fund_search_pool():
     """
     基金搜索池：
@@ -368,35 +611,29 @@ def _get_fund_search_pool():
     now = datetime.now()
     loaded_at = FUND_SEARCH_CACHE.get("loaded_at")
     cached_items = FUND_SEARCH_CACHE.get("items") or []
+    failed_at = FUND_SEARCH_CACHE.get("failed_at")
     # 缓存30分钟，降低接口压力
     if loaded_at and cached_items and (now - loaded_at) < timedelta(minutes=30):
         return cached_items
+    # 即便缓存过期，仍优先使用已有缓存，后台异步刷新
+    if cached_items:
+        if not failed_at or (now - failed_at) > timedelta(minutes=2):
+            _refresh_fund_search_cache_async()
+        return cached_items
 
-    try:
-        df = ak.fund_name_em()
-        items = []
-        if df is not None and not df.empty:
-            for _, row in df.iterrows():
-                code = str(row.get("基金代码", "")).strip()
-                name = str(row.get("基金简称", "")).strip()
-                category = str(row.get("基金类型", "")).strip()
-                pinyin_short = str(row.get("拼音缩写", "")).strip()
-                pinyin_full = str(row.get("拼音全称", "")).strip()
-                if not code or not name:
-                    continue
-                items.append({
-                    "code": code,
-                    "name": name,
-                    "category": category or "基金",
-                    "pinyin_short": pinyin_short,
-                    "pinyin_full": pinyin_full,
-                })
-        if items:
-            FUND_SEARCH_CACHE["loaded_at"] = now
-            FUND_SEARCH_CACHE["items"] = items
-            return items
-    except Exception:
-        pass
+    # 进程冷启动优先读取磁盘缓存（上次成功结果）
+    disk_items = _load_fund_search_cache_from_disk()
+    if disk_items:
+        FUND_SEARCH_CACHE["loaded_at"] = now
+        FUND_SEARCH_CACHE["items"] = disk_items
+        if not failed_at or (now - failed_at) > timedelta(minutes=2):
+            _refresh_fund_search_cache_async()
+        return disk_items
+
+    # 异步预热：不阻塞当前请求
+    # 失败后 2 分钟内不重复发起，避免持续抖动
+    if not failed_at or (now - failed_at) > timedelta(minutes=2):
+        _refresh_fund_search_cache_async()
 
     # 回退
     return FUND_SEARCH_POOL
@@ -417,11 +654,19 @@ def _get_stock_search_pool():
 
     # 1) A股全量代码名称清单（覆盖最全）
     try:
-        df = ak.stock_info_a_code_name()
+        df = _call_with_timeout(ak.stock_info_a_code_name, timeout_sec=5)
         items = []
         if df is not None and not df.empty:
-            code_col = "code" if "code" in df.columns else ("证券代码" if "证券代码" in df.columns else "")
-            name_col = "name" if "name" in df.columns else ("证券简称" if "证券简称" in df.columns else "")
+            code_col = (
+                "code" if "code" in df.columns else
+                ("证券代码" if "证券代码" in df.columns else
+                 ("代码" if "代码" in df.columns else ""))
+            )
+            name_col = (
+                "name" if "name" in df.columns else
+                ("证券简称" if "证券简称" in df.columns else
+                 ("名称" if "名称" in df.columns else ""))
+            )
             if code_col and name_col:
                 for _, row in df.iterrows():
                     code = str(row.get(code_col, "")).strip()
@@ -442,7 +687,7 @@ def _get_stock_search_pool():
 
     # 2) 快照接口（字段更丰富，但个别环境可能失败）
     try:
-        df = ak.stock_zh_a_spot()
+        df = _call_with_timeout(ak.stock_zh_a_spot, timeout_sec=5)
         items = []
         if df is not None and not df.empty:
             for _, row in df.iterrows():
@@ -509,7 +754,107 @@ def _extract_amount_and_profit(line):
     return None, None
 
 
-def _resolve_asset_by_name_or_code(line, code, stock_map, fund_map):
+def _normalize_asset_name_for_ocr(text):
+    """
+    OCR 名称归一化：
+    - 小写
+    - 去除空格/标点
+    - 仅保留中文、字母、数字
+    """
+    if not text:
+        return ""
+    s = str(text).strip().lower()
+    s = re.sub(r"[\s\-\._·•:：,，;；\(\)\[\]（）【】]+", "", s)
+    s = re.sub(r"[^0-9a-z\u4e00-\u9fa5]+", "", s)
+    return s
+
+
+def _build_name_variants(name, asset_type):
+    """
+    构造名称变体，提升 OCR 错字/漏字下的命中概率。
+    """
+    raw = str(name or "").strip()
+    if not raw:
+        return set()
+
+    variants = set()
+    norm = _normalize_asset_name_for_ocr(raw)
+    if norm:
+        variants.add(norm)
+
+    # 去除括号内容，例如 "(LOF)"、"（ETF）"
+    no_bracket = re.sub(r"\(.*?\)|（.*?）|\[.*?\]|【.*?】", "", raw).strip()
+    norm_no_bracket = _normalize_asset_name_for_ocr(no_bracket)
+    if norm_no_bracket:
+        variants.add(norm_no_bracket)
+
+    # 基金常见后缀弱化：A/C/E 等份额尾缀；若去掉后仍有足够长度则加入
+    tail_stripped = re.sub(r"[a-zA-Z]$", "", norm_no_bracket or norm)
+    if tail_stripped and len(tail_stripped) >= 3:
+        variants.add(tail_stripped)
+
+    # 行业词后缀弱化，适配 OCR 截断（如“招商中证白酒指数A” -> “招商中证白酒”）
+    if asset_type == "基金":
+        core = norm_no_bracket or norm
+        core = re.sub(r"(基金|混合|股票|指数|联接|lof|etf)+$", "", core)
+        if core and len(core) >= 3:
+            variants.add(core)
+
+    return {v for v in variants if v}
+
+
+def _build_name_candidates(asset_pool, asset_type):
+    candidates = []
+    for x in asset_pool:
+        code = str(x.get("code", "")).strip()
+        name = str(x.get("name", "")).strip()
+        if not code or not name:
+            continue
+        variants = _build_name_variants(name, asset_type)
+        if not variants:
+            continue
+        candidates.append({
+            "code": code,
+            "name": name,
+            "variants": variants,
+        })
+    return candidates
+
+
+def _fuzzy_match_asset_by_name(line, candidates):
+    """
+    在候选集中做名称模糊匹配，返回最佳候选 (code, name) 或 ("","")。
+    规则：
+    - 优先完整名称命中
+    - 其次变体命中，按命中长度评分，避免短词误匹配
+    """
+    line_norm = _normalize_asset_name_for_ocr(line)
+    if not line_norm:
+        return "", ""
+
+    best = ("", "", 0)  # code, name, score
+    for item in candidates:
+        code = item["code"]
+        name = item["name"]
+        name_norm = _normalize_asset_name_for_ocr(name)
+        if name_norm and name_norm in line_norm:
+            score = 1000 + len(name_norm)
+            if score > best[2]:
+                best = (code, name, score)
+            continue
+
+        for v in item["variants"]:
+            if len(v) < 3:
+                continue
+            if v in line_norm:
+                score = len(v)
+                if score > best[2]:
+                    best = (code, name, score)
+
+    return best[0], best[1]
+
+
+def _resolve_asset_by_name_or_code(line, code, stock_map, fund_map, stock_candidates=None, fund_candidates=None):
     """
     优先按代码匹配；若无代码则按名称匹配（基金优先）
     """
@@ -526,6 +871,16 @@ def _resolve_asset_by_name_or_code(line, code, stock_map, fund_map):
     for s_code, s_name in stock_map.items():
         if s_name and s_name in line:
             return s_code, s_name, "股票"
+
+    # 名称模糊匹配：基金优先
+    if fund_candidates:
+        c, n = _fuzzy_match_asset_by_name(line, fund_candidates)
+        if c and n:
+            return c, n, "基金"
+    if stock_candidates:
+        c, n = _fuzzy_match_asset_by_name(line, stock_candidates)
+        if c and n:
+            return c, n, "股票"
 
     # 别名兜底
     for n, aliases in OCR_TEXT_ALIASES.items():
@@ -546,6 +901,8 @@ def _ocr_parse_holdings_text(text):
     fund_pool = _get_fund_search_pool()
     stock_map = {x["code"]: x["name"] for x in stock_pool if x.get("code") and x.get("name")}
     fund_map = {x["code"]: x["name"] for x in fund_pool if x.get("code") and x.get("name")}
+    stock_candidates = _build_name_candidates(stock_pool, "股票")
+    fund_candidates = _build_name_candidates(fund_pool, "基金")
 
     for line in lines:
         code_match = re.search(r"\b(\d{6})\b", line)
@@ -556,7 +913,14 @@ def _ocr_parse_holdings_text(text):
         if amount <= 0 or (amount + profit) <= 0:
             continue
 
-        code, name, asset_type = _resolve_asset_by_name_or_code(line, code, stock_map, fund_map)
+        code, name, asset_type = _resolve_asset_by_name_or_code(
+            line,
+            code,
+            stock_map,
+            fund_map,
+            stock_candidates=stock_candidates,
+            fund_candidates=fund_candidates,
+        )
 
         if not code:
             continue
@@ -613,21 +977,74 @@ def generate_kline_data(days=120):
     return data
 
 
+def _format_index_date(val):
+    if hasattr(val, "strftime"):
+        return val.strftime("%Y-%m-%d")
+    s = str(val).strip()
+    return s[:10] if len(s) >= 10 else s
+
+
+def _fetch_hs300_normalized_series(days=180):
+    """
+    拉取沪深300（sh000300）最近若干交易日收盘价，归一化为以首日为 1.0 的净值曲线。
+    失败返回 None。
+    """
+    try:
+        df = ak.stock_zh_index_daily(symbol="sh000300")
+        if df is None or df.empty or len(df) < 2:
+            return None
+        tail = df.tail(int(days))
+        if tail.empty:
+            return None
+        closes = tail["close"].astype(float)
+        first = float(closes.iloc[0])
+        if first <= 0:
+            return None
+        out = []
+        for _, row in tail.iterrows():
+            d = _format_index_date(row.get("date"))
+            close_p = float(row["close"])
+            out.append({
+                "date": d,
+                "benchmark": round(close_p / first, 4),
+            })
+        return out
+    except Exception:
+        return None
+
+
 def generate_portfolio_history(days=180):
-    """生成组合历史净值曲线"""
+    """
+    组合净值：模拟随机游走（演示用）。
+    沪深300：AkShare 真实日线收盘价归一化曲线，与组合按同一交易日对齐。
+    """
+    bench_rows = _fetch_hs300_normalized_series(days=days)
+    if not bench_rows:
+        data = []
+        nav = 1.0
+        benchmark = 1.0
+        for i in range(days):
+            date = (datetime.now() - timedelta(days=days - i)).strftime("%Y-%m-%d")
+            nav_change = random.gauss(0.0004, 0.008)
+            bench_change = random.gauss(0.0002, 0.012)
+            nav *= (1 + nav_change)
+            benchmark *= (1 + bench_change)
+            data.append({
+                "date": date,
+                "nav": round(nav, 4),
+                "benchmark": round(benchmark, 4),
+            })
+        return data
+
     data = []
     nav = 1.0
-    benchmark = 1.0
-    for i in range(days):
-        date = (datetime.now() - timedelta(days=days - i)).strftime("%Y-%m-%d")
+    for row in bench_rows:
         nav_change = random.gauss(0.0004, 0.008)
-        bench_change = random.gauss(0.0002, 0.012)
         nav *= (1 + nav_change)
-        benchmark *= (1 + bench_change)
         data.append({
-            "date": date,
+            "date": row["date"],
             "nav": round(nav, 4),
-            "benchmark": round(benchmark, 4),
+            "benchmark": row["benchmark"],
         })
     return data
 
@@ -1277,6 +1694,39 @@ def stock_screen():
             return code[2:]
         return code
 
+    def _build_static_factor_rows():
+        rows = []
+        for s in STOCKS:
+            code = str(s.get("code", "")).strip()
+            name = str(s.get("name", "")).strip()
+            price = _to_float(s.get("price"))
+            if not code or not name or price <= 0:
+                continue
+            day_change_pct = _to_float(s.get("momentum_3m")) / 20.0
+            amount = max(_to_float(s.get("market_cap")) * 1e8 * 0.001, 1.0)
+            volume = max(amount / max(price, 1.0), 1.0)
+            value_raw = 100.0 - _to_float(s.get("pe"), 20.0) * 2.0
+            growth_raw = _to_float(s.get("revenue_growth"), 0.0) * 2.0 + _to_float(s.get("profit_growth"), 0.0) * 1.2
+            quality_raw = _to_float(s.get("roe"), 0.0) * 2.5 - _to_float(s.get("debt_ratio"), 0.0) * 0.4
+            momentum_raw = _to_float(s.get("momentum_3m"), 0.0) * 0.6 + _to_float(s.get("momentum_6m"), 0.0) * 0.4
+            sentiment_raw = _to_float(s.get("sentiment"), 0.5) * 100.0 + _to_float(s.get("analyst_rating"), 3.5) * 5.0
+            rows.append({
+                "code": code,
+                "name": name,
+                "price": price,
+                "day_change_pct": day_change_pct,
+                "volume": volume,
+                "amount": amount,
+                "raw": {
+                    "value": value_raw,
+                    "growth": growth_raw,
+                    "quality": quality_raw,
+                    "momentum": momentum_raw,
+                    "sentiment": sentiment_raw,
+                },
+            })
+        return rows
+
     weights = request.json or {}
     w_value = weights.get("value", 20) / 100
     w_growth = weights.get("growth", 20) / 100
@@ -1351,30 +1801,29 @@ def stock_screen():
 
     scored_stocks = []
     try:
-        # 使用新浪行情源（ak.stock_zh_a_spot）实时获取全市场A股
-        candidate_rows = []
-        try:
-            df = ak.stock_zh_a_spot()
-            if df is not None and not df.empty:
-                # 过滤无效价格并优先保留成交额更高的标的，避免小盘噪音
-                rows = []
-                for _, row in df.iterrows():
-                    code = _normalize_code(row.get("代码", ""))
-                    name = str(row.get("名称", "")).strip()
-                    price = _to_float(row.get("最新价"))
-                    if not code or not name or price <= 0:
-                        continue
-                    amount = _to_float(row.get("成交额"))
-                    rows.append((amount, row))
-                rows.sort(key=lambda x: x[0], reverse=True)
-                candidate_rows = [r for _, r in rows[:300]]
-        except Exception:
-            candidate_rows = []
+        # 优先更快的新浪批量实时源，避免页面长时间等待
+        candidate_rows = _fetch_realtime_from_sina(_get_stock_search_pool()[:300])
+
+        if not candidate_rows:
+            # 备用源：东方财富 A 股快照
+            try:
+                df_em = ak.stock_zh_a_spot_em()
+                if df_em is not None and not df_em.empty:
+                    rows = []
+                    for _, row in df_em.iterrows():
+                        code = _normalize_code(row.get("代码", ""))
+                        name = str(row.get("名称", "")).strip()
+                        price = _to_float(row.get("最新价"))
+                        if not code or not name or price <= 0:
+                            continue
+                        rows.append((_to_float(row.get("成交额")), row))
+                    rows.sort(key=lambda x: x[0], reverse=True)
+                    candidate_rows = [r for _, r in rows[:300]]
+            except Exception:
+                candidate_rows = []
 
         if not candidate_rows:
             candidate_rows = _fetch_realtime_from_sina(STOCKS)
-            if not candidate_rows:
-                return jsonify({"stocks": []})
 
         factor_rows = []
         for row in candidate_rows:
@@ -1422,7 +1871,12 @@ def stock_screen():
             })
 
         if not factor_rows:
-            return jsonify({"stocks": []})
+            factor_rows = _build_static_factor_rows()
+            if not factor_rows:
+                cached = STOCK_SCREEN_RESULT_CACHE.get("items") or []
+                if cached:
+                    return jsonify({"stocks": cached})
+                return jsonify({"stocks": []})
 
         # 将原始因子做横截面百分位，避免某只股票长期“锁第一”
         factor_names = ["value", "growth", "quality", "momentum", "sentiment"]
@@ -1453,14 +1907,15 @@ def stock_screen():
             )
 
             base = base_map.get(code, {})
+            industry = base.get("industry", "未知")
+            pe_val, roe_val = _resolve_pe_roe(row, base, industry)
             item = {
                 "code": code,
                 "name": row["name"],
-                "industry": base.get("industry", "未知"),
+                "industry": industry,
                 "price": round(row["price"], 2),
-                # 当前实时源不提供稳定PE/ROE，前端会按空值显示 --
-                "pe": base.get("pe"),
-                "roe": base.get("roe"),
+                "pe": pe_val,
+                "roe": roe_val,
                 "change_pct": round(row["day_change_pct"], 2),
                 "volume": round(row["volume"], 2),
                 "amount": round(row["amount"], 2),
@@ -1488,10 +1943,38 @@ def stock_screen():
             scored_stocks.append(item)
 
         scored_stocks.sort(key=lambda x: x["scores"]["total"], reverse=True)
-        return jsonify({"stocks": scored_stocks[:80]})
+        final_items = scored_stocks[:80]
+        STOCK_SCREEN_RESULT_CACHE["loaded_at"] = datetime.now()
+        STOCK_SCREEN_RESULT_CACHE["items"] = final_items
+        return jsonify({"stocks": final_items})
     except Exception as e:
         print(f"智能选股实时数据获取失败: {e}")
-        return jsonify({"stocks": []})
+        cached = STOCK_SCREEN_RESULT_CACHE.get("items") or []
+        if cached:
+            return jsonify({"stocks": cached})
+        fallback = []
+        for idx, s in enumerate(STOCKS[:20]):
+            fallback.append({
+                "code": s["code"],
+                "name": s["name"],
+                "industry": s.get("industry", "未知"),
+                "price": round(_to_float(s.get("price")), 2),
+                "pe": _to_float(s.get("pe")),
+                "roe": _to_float(s.get("roe")),
+                "change_pct": round(_to_float(s.get("momentum_3m")) / 20.0, 2),
+                "volume": 0.0,
+                "amount": 0.0,
+                "scores": {
+                    "value": round(_clip(100 - _to_float(s.get("pe")) * 2), 1),
+                    "growth": round(_clip(_to_float(s.get("revenue_growth")) * 2), 1),
+                    "quality": round(_clip(_to_float(s.get("roe")) * 2.5), 1),
+                    "momentum": round(_clip(50 + _to_float(s.get("momentum_3m")) * 2), 1),
+                    "sentiment": round(_clip(_to_float(s.get("sentiment"), 0.5) * 100), 1),
+                    "total": round(50 + (20 - idx) * 0.5, 1),
+                },
+                "ai_reason": "实时行情暂不可用，当前为基础因子估算结果",
+            })
+        return jsonify({"stocks": fallback})
 
 
 @app.route("/api/portfolio")
@@ -1611,7 +2094,7 @@ def _fetch_realtime_authoritative_news(limit=8):
     now = datetime.now()
     loaded_at = REALTIME_NEWS_CACHE.get("loaded_at")
     cached_items = REALTIME_NEWS_CACHE.get("items") or []
-    if loaded_at and cached_items and (now - loaded_at) < timedelta(minutes=8):
+    if loaded_at and cached_items and (now - loaded_at) < timedelta(minutes=3):
         return cached_items[:limit]
 
     items = []
@@ -1643,6 +2126,16 @@ def _fetch_realtime_authoritative_news(limit=8):
     REALTIME_NEWS_CACHE["loaded_at"] = now
     REALTIME_NEWS_CACHE["items"] = items
     return items[:limit]
+
+
+def _extract_years(text):
+    years = []
+    for m in re.findall(r"(20\d{2})", text or ""):
+        try:
+            years.append(int(m))
+        except Exception:
+            pass
+    return years
 
 
 def _fetch_fund_rank_data(limit=300):
@@ -1730,53 +2223,127 @@ def _get_peer_assets(asset, limit=3):
     return peers
 
 
+def _infer_asset_topics(asset):
+    name = str(asset.get("name", ""))
+    category = str(asset.get("category", ""))
+    topics = []
+    mapping = [
+        ("白酒", ["白酒", "消费"]),
+        ("消费", ["消费", "零售"]),
+        ("医药", ["医药", "医疗"]),
+        ("医疗", ["医药", "医疗"]),
+        ("新能源", ["新能源", "光伏", "电池"]),
+        ("光伏", ["光伏", "新能源"]),
+        ("银行", ["银行", "利率"]),
+        ("科技", ["科技", "AI", "人工智能"]),
+        ("蓝筹", ["蓝筹", "大盘", "价值"]),
+        ("300", ["沪深300", "指数", "ETF"]),
+        ("ETF", ["ETF", "指数"]),
+        ("指数", ["指数", "ETF"]),
+    ]
+    for k, vals in mapping:
+        if k in name or k in category:
+            topics.extend(vals)
+    if not topics:
+        topics = ["基金", "A股", "指数"]
+    return list(dict.fromkeys(topics))
+
+
 def _get_authoritative_news(asset, limit=4):
     """提取与资产主题更相关的权威媒体新闻"""
-    keyword_map = ["新能源", "白酒", "医药", "银行", "科技", "消费", "光伏", "AI"]
-    name = asset.get("name", "")
-    hit_keys = [k for k in keyword_map if k in name]
-    source_news = _fetch_realtime_authoritative_news(limit=10)
+    topics = _infer_asset_topics(asset)
+    finance_keywords = ["基金", "A股", "市场", "板块", "行业", "ETF", "指数", "资金", "估值", "收益", "净值"] + topics
+    source_news = _fetch_realtime_authoritative_news(limit=20)
     selected = []
     for n in source_news:
         title = str(n.get("title", ""))
-        if hit_keys and any(k in title for k in hit_keys):
+        if any(k in title for k in finance_keywords):
             selected.append(n)
+    if not selected:
+        # 回退到内置新闻中更偏投资主题的内容
+        selected = [n for n in NEWS_DATA if any(k in str(n.get("title", "")) for k in finance_keywords)]
     if not selected:
         selected = source_news[:]
     selected = selected[:limit]
     return [
         (
             f"{idx}. {n.get('title','')}｜来源:{n.get('source','未知')}｜影响:{n.get('impact','')}"
-            f"{'｜原文:' + n.get('link','') if n.get('link') else ''}"
+            f"｜原文:{n.get('link') or ('https://search.sina.com.cn/?q=' + requests.utils.quote(str(n.get('title',''))[:40]) + '&range=all&c=news')}"
         )
         for idx, n in enumerate(selected, 1)
     ]
 
 
-def _build_professional_context(user_message, asset):
-    metrics = _build_asset_metrics(asset)
-    risk = _build_risk_indicators(asset)
-    holding = _find_holding(asset)
-    hold_duration = _extract_hold_duration(user_message) or "未提供"
-    pnl_text = "暂无"
+def _normalize_input_holdings(raw_holdings):
+    if not isinstance(raw_holdings, list):
+        return []
+    normalized = []
+    for item in raw_holdings:
+        if not isinstance(item, dict):
+            continue
+        try:
+            # 兼容前端 created_at / createdAt 与后端 buy_date 两种字段名
+            buy_date = str(item.get("buy_date", "") or "").strip()
+            if not buy_date:
+                raw_dt = item.get("created_at") or item.get("createdAt") or ""
+                if raw_dt:
+                    # ISO 格式取前10位 "YYYY-MM-DD"
+                    buy_date = str(raw_dt)[:10]
+            normalized.append({
+                "code": str(item.get("code", "")).strip(),
+                "name": str(item.get("name", "")).strip(),
+                "asset_type": "基金" if str(item.get("asset_type", "")).strip() == "基金" else "股票",
+                "shares": float(item.get("shares", 0) or 0),
+                "cost": float(item.get("cost", 0) or 0),
+                "current": float(item.get("current", 0) or 0),
+                "buy_date": buy_date,
+            })
+        except Exception:
+            continue
+    return normalized
+
+
+def _resolve_holding_context(asset, user_message, holdings_override=None):
+    holding = _find_holding(asset, holdings_override)
+    purchased_text = "已购买" if holding else "未购买（我的持有中未匹配到该标的）"
+    hold_duration = "未知（持仓缺少买入日期）"
+    pnl_text = "暂无盈亏数据"
     if holding:
         profit = (holding["current"] - holding["cost"]) * holding["shares"]
-        pnl_text = f"{profit:+.2f} 元"
-    news_lines = _get_authoritative_news(asset)
+        profit_rate = ((holding["current"] - holding["cost"]) / holding["cost"] * 100) if holding["cost"] else 0
+        pnl_text = f"{profit:+.2f} 元（{profit_rate:+.2f}%）"
+        buy_date = holding.get("buy_date", "")
+        try:
+            if buy_date:
+                bd = datetime.strptime(buy_date, "%Y-%m-%d")
+                days = max(1, (datetime.now() - bd).days)
+                hold_duration = f"{days}天"
+            else:
+                hold_duration = "未知（持仓缺少买入日期）"
+        except Exception:
+            hold_duration = "未知（买入日期格式异常）"
+    # 兼容用户文本中显式提供的时间，优先系统持仓，其次用户文本
+    if (not holding or "未知" in hold_duration):
+        hold_duration = _extract_hold_duration(user_message) or hold_duration
+    return holding, purchased_text, hold_duration, pnl_text
+
+
+def _build_professional_context(user_message, asset, holdings_override=None):
+    metrics = _build_asset_metrics(asset)
+    risk = _build_risk_indicators(asset)
+    holding, purchased_text, hold_duration, pnl_text = _resolve_holding_context(asset, user_message, holdings_override)
     peer_lines = _get_peer_assets(asset)
     sector, reason = _get_sector_judgement(asset.get("name", ""), asset.get("asset_type", "基金"))
     now_text = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     lines = [
         f"数据时间戳：{now_text}",
-        "数据来源：AkShare（新浪财经快讯、东方财富基金排行）、系统持仓与指标引擎",
+        "数据来源：AkShare（东方财富基金排行）、系统持仓与指标引擎",
         f"识别资产：{asset.get('name')}（{asset.get('code')}），类型：{asset.get('asset_type')}，类别：{asset.get('category','')}",
-        f"用户持仓信息：是否购买={'是' if holding else '否'}；购买多久={hold_duration}；当前盈亏={pnl_text}",
+        f"用户持仓信息（来自我的持有）：是否购买={purchased_text}；购买多久={hold_duration}；当前盈亏={pnl_text}",
         f"核心指标：近一年涨跌幅={metrics['year_return']:+.2f}%；最新净值/现价={metrics['latest_nav']:.3f}；近1年跟踪误差={metrics['tracking_error']:.2f}%",
         f"金融风险指标：年化波动率≈{risk['volatility']:.2f}%；最大回撤≈{risk['max_drawdown']:.2f}%；夏普比率≈{risk['sharpe']:.2f}；信息比率≈{risk['information_ratio']:.2f}",
         f"板块判断：{sector}；原因：{reason}",
-        "权威媒体新闻（用于观点依据）：",
-        *news_lines,
         "同类产品/同业对比（用于相对价值判断）：",
         *peer_lines,
         "请根据以上事实做分析，不要杜撰不存在的数据来源。",
@@ -1791,17 +2358,13 @@ def _ensure_professional_sections(response_text, user_message, asset):
         return text
     metrics = _build_asset_metrics(asset)
     risk = _build_risk_indicators(asset)
-    news_lines = _get_authoritative_news(asset, limit=3)
     peer_lines = _get_peer_assets(asset, limit=3)
     now_text = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    need_news = ("来源:" not in text) and ("权威媒体新闻" not in text)
     need_peer = ("同类" not in text) and ("可比" not in text)
     need_risk = ("夏普" not in text) and ("波动率" not in text) and ("最大回撤" not in text)
 
     append_parts = []
-    if need_news:
-        append_parts.append("### 权威媒体新闻（补充）\n" + "\n".join([f"- {x}" for x in news_lines]))
     if need_peer:
         append_parts.append("### 同类产品对比（补充）\n" + "\n".join([f"- {x}" for x in peer_lines]))
     if need_risk:
@@ -1813,21 +2376,11 @@ def _ensure_professional_sections(response_text, user_message, asset):
             f"- 最大回撤：{risk['max_drawdown']:.2f}%\n"
             f"- 夏普比率：{risk['sharpe']:.2f}"
         )
-    # 强制追加：每次都展示数据时间与来源 + 原文链接（避免模型遗漏）
-    source_block_lines = []
-    for line in news_lines:
-        m = re.search(r"原文:(https?://\S+)", line)
-        if m:
-            link = m.group(1)
-            source_block_lines.append(f"- [查看原文]({link})")
-    if not source_block_lines:
-        source_block_lines.append("- 暂无可用原文链接（新闻源未返回URL）")
+
     append_parts.append(
         "### 数据时间与来源\n"
         f"- 时间：{now_text}\n"
-        "- 来源：AkShare（新浪财经快讯、东方财富基金排行）+ 系统指标引擎\n"
-        "- 原文链接：\n"
-        + "\n".join(source_block_lines)
+        "- 来源：AkShare（东方财富基金排行）+ 系统指标引擎"
     )
 
     if append_parts:
@@ -1835,21 +2388,28 @@ def _ensure_professional_sections(response_text, user_message, asset):
     return text
 
 
-def _find_holding(asset):
+def _ensure_latest_news_snapshot(text):
+    """通用问答场景：直接返回原文，不再追加新闻快照。"""
+    return (text or "").strip()
+
+
+def _find_holding(asset, holdings_override=None):
     code = str(asset.get("code", "")).strip()
     asset_type = asset.get("asset_type", "")
-    for h in _get_demo_holdings():
+    pool = holdings_override if isinstance(holdings_override, list) else _get_demo_holdings()
+    for h in pool:
         if h.get("code") == code and h.get("asset_type") == asset_type:
             return h
     return None
 
 
-def _find_asset_from_message(message):
+def _find_asset_from_message(message, holdings_pool=None):
     text = message.strip()
     if not text:
         return None
     all_assets = []
-    # 聊天场景要求高可用和低延迟：仅使用本地快速池，不触发外部数据请求
+
+    # 1. 本地静态股票池
     for s in STOCKS:
         all_assets.append({
             "code": str(s.get("code", "")).strip(),
@@ -1857,6 +2417,8 @@ def _find_asset_from_message(message):
             "asset_type": "股票",
             "category": "股票",
         })
+
+    # 2. 静态基金样例池
     for f in FUND_SEARCH_POOL:
         all_assets.append({
             "code": str(f.get("code", "")).strip(),
@@ -1864,7 +2426,22 @@ def _find_asset_from_message(message):
             "asset_type": "基金",
             "category": str(f.get("category", "基金")).strip() or "基金",
         })
+
+    # 3. AkShare 动态全量基金缓存（如已加载则加入，增大识别范围）
+    for f in (FUND_SEARCH_CACHE.get("items") or []):
+        all_assets.append({
+            "code": str(f.get("code", "")).strip(),
+            "name": str(f.get("name", "")).strip(),
+            "asset_type": "基金",
+            "category": str(f.get("category", "基金")).strip() or "基金",
+        })
+
+    # 4. 前端传来的持仓 + 本地持仓（确保用户持有标的总能被识别）
+    merged_holdings = list(holdings_pool) if isinstance(holdings_pool, list) else []
     for h in _get_demo_holdings():
+        if not any(x.get("code") == h.get("code") for x in merged_holdings):
+            merged_holdings.append(h)
+    for h in merged_holdings:
         all_assets.append({
             "code": str(h.get("code", "")).strip(),
             "name": str(h.get("name", "")).strip(),
@@ -1872,32 +2449,48 @@ def _find_asset_from_message(message):
             "category": str(h.get("asset_type", "基金")).strip(),
         })
 
-    code_match = re.search(r"\b(\d{6})\b", text)
+    # 去重（按 code 保留最先出现的）
+    seen_codes = set()
+    deduped = []
+    for a in all_assets:
+        key = a["code"]
+        if key and key not in seen_codes:
+            seen_codes.add(key)
+            deduped.append(a)
+        elif not key:
+            deduped.append(a)
+    all_assets = deduped
+
+    # 使用非捕获边界，兼容中文语境下的6位数字代码识别
+    code_match = re.search(r"(?<!\d)(\d{6})(?!\d)", text)
     if code_match:
         code = code_match.group(1)
         hit = next((a for a in all_assets if a["code"] == code), None)
         if hit:
             return hit
 
+    # 正向精确匹配：资产名称 是 用户消息的子串
     name_hits = [a for a in all_assets if a["name"] and a["name"] in text]
     if name_hits:
         name_hits.sort(key=lambda x: len(x["name"]), reverse=True)
         return name_hits[0]
+
+    # 反向模糊匹配：用户消息的关键词片段 是 资产名称的子串（至少4个汉字）
+    keywords = re.findall(r"[\u4e00-\u9fff]{4,}", text)
+    for kw in sorted(keywords, key=len, reverse=True):
+        candidates = [a for a in all_assets if a["name"] and kw in a["name"]]
+        if candidates:
+            candidates.sort(key=lambda x: len(x["name"]))
+            return candidates[0]
+
     return None
 
 
-def _render_asset_analysis(message, asset):
+def _render_asset_analysis(message, asset, holdings_override=None):
     asset_name = asset.get("name", "该资产")
     code = asset.get("code", "")
     asset_type = asset.get("asset_type", "基金")
-    holding = _find_holding(asset)
-    hold_duration = _extract_hold_duration(message) or "未提供（可补充如：持有8个月）"
-    purchased_text = "已购买" if holding else "未购买（当前组合未识别到该标的）"
-    pnl_text = "暂无盈亏数据"
-    if holding:
-        profit = (holding["current"] - holding["cost"]) * holding["shares"]
-        profit_rate = ((holding["current"] - holding["cost"]) / holding["cost"]) * 100 if holding["cost"] else 0
-        pnl_text = f"{profit:+.2f} 元（{profit_rate:+.2f}%）"
+    holding, purchased_text, hold_duration, pnl_text = _resolve_holding_context(asset, message, holdings_override)
 
     metrics = _build_asset_metrics(asset)
     sector, reason = _get_sector_judgement(asset_name, asset_type)
@@ -1935,21 +2528,21 @@ def _render_asset_analysis(message, asset):
     )
 
 
-def _build_kimi_payload(user_message, asset=None):
+def _build_kimi_payload(user_message, asset=None, holdings_override=None):
     system_prompt = (
         "你是专业中文投顾助手。输出必须清晰、克制、可执行，不夸大收益。"
         "如果用户询问具体基金或股票，请严格按以下结构输出："
         "1) 结合用户信息（是否购买、购买多久、盈亏）"
         "2) 先给出总结（板块形势、原因、核心指标概览：近一年涨跌幅、最新净值、近1年跟踪误差）"
         "3) 具体内容结构（业绩回顾、板块分析、投资建议）"
-        "分析中必须显式引用：权威媒体新闻、同类产品对比、金融指标。"
-        "请在文末增加“数据时间与来源”小节。"
+        "分析中可引用同类产品对比与金融指标，不得自行引用无来源的新闻。"
+        "若未给定历史年份，不得自行写出“截至2023年/2022年”等过期表述。"
         "最后必须附加风险提示：仅供参考，不构成投资建议。"
     )
     messages = [{"role": "system", "content": system_prompt}]
 
     if asset:
-        context = _build_professional_context(user_message, asset)
+        context = _build_professional_context(user_message, asset, holdings_override=holdings_override)
         messages.append({"role": "user", "content": context})
 
     messages.append({"role": "user", "content": user_message})
@@ -1960,7 +2553,7 @@ def _build_kimi_payload(user_message, asset=None):
     }
 
 
-def _call_kimi(user_message, asset=None):
+def _call_kimi(user_message, asset=None, holdings_override=None):
     api_key = os.getenv("KIMI_API_KEY", "").strip()
     if not api_key:
         return None, "KIMI_API_KEY 未配置"
@@ -1968,38 +2561,61 @@ def _call_kimi(user_message, asset=None):
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
     }
-    try:
-        resp = requests.post(
-            KIMI_API_URL,
-            headers=headers,
-            json=_build_kimi_payload(user_message, asset),
-            timeout=20,
-        )
-        if resp.status_code != 200:
-            return None, f"Kimi接口异常: HTTP {resp.status_code}"
-        data = resp.json() or {}
-        content = (
-            data.get("choices", [{}])[0]
-            .get("message", {})
-            .get("content", "")
-            .strip()
-        )
-        if not content:
-            return None, "Kimi返回内容为空"
-        return content, None
-    except Exception as e:
-        return None, f"Kimi请求失败: {e}"
+    payload = _build_kimi_payload(user_message, asset, holdings_override)
+    last_error = None
+    for attempt in range(2):  # 最多重试1次
+        try:
+            if attempt > 0:
+                time.sleep(3)  # 重试前等待3秒
+            resp = requests.post(
+                KIMI_API_URL,
+                headers=headers,
+                json=payload,
+                timeout=25,
+            )
+            if resp.status_code == 429:
+                last_error = "Kimi请求过于频繁(429)，请稍后再试"
+                continue
+            if resp.status_code != 200:
+                # 检查是否是 overloaded 错误，可重试
+                try:
+                    err_body = resp.json()
+                    err_type = err_body.get("error", {}).get("type", "")
+                    if "overload" in err_type:
+                        last_error = f"Kimi服务器过载，请稍后再试"
+                        continue
+                except Exception:
+                    pass
+                return None, f"Kimi接口异常: HTTP {resp.status_code}"
+            data = resp.json() or {}
+            content = (
+                data.get("choices", [{}])[0]
+                .get("message", {})
+                .get("content", "")
+                .strip()
+            )
+            if not content:
+                return None, "Kimi返回内容为空"
+            return content, None
+        except Exception as e:
+            last_error = f"Kimi请求失败: {e}"
+            if attempt == 0 and ("timeout" in str(e).lower() or "timed out" in str(e).lower()):
+                continue  # 超时则重试一次
+            break
+    return None, last_error
 
 
 @app.route("/api/chat", methods=["POST"])
 def chat():
     raw_message = str(request.json.get("message", "")).strip()
     message = raw_message.lower()
+    raw_holdings = request.json.get("holdings")
+    holdings_override = _normalize_input_holdings(raw_holdings) if raw_holdings else None
 
-    asset = _find_asset_from_message(raw_message)
-    llm_text, llm_error = _call_kimi(raw_message, asset)
+    asset = _find_asset_from_message(raw_message, holdings_pool=holdings_override)
+    llm_text, llm_error = _call_kimi(raw_message, asset, holdings_override=holdings_override)
     if llm_text:
-        llm_text = _ensure_professional_sections(llm_text, raw_message, asset)
+        llm_text = _ensure_professional_sections(llm_text, raw_message, asset) if asset else _ensure_latest_news_snapshot(llm_text)
         return jsonify({
             "response": llm_text,
             "category": "asset_analysis" if asset else "llm_chat",
@@ -2009,7 +2625,7 @@ def chat():
         })
 
     if asset:
-        fallback_text = _render_asset_analysis(raw_message, asset)
+        fallback_text = _render_asset_analysis(raw_message, asset, holdings_override=holdings_override)
         fallback_text = _ensure_professional_sections(fallback_text, raw_message, asset)
         return jsonify({
             "response": fallback_text,
@@ -2020,6 +2636,32 @@ def chat():
             "llm_error": llm_error or "Kimi不可用，已回退本地分析",
         })
 
+    # 用户问的像是某个具体基金/股票，但本地识别不到，且 Kimi 又不可用时，给出有用提示
+    analysis_keywords = ["分析", "怎么样", "能买吗", "值得买", "表现", "业绩", "走势", "基金", "持有", "涨跌"]
+    looks_like_asset_query = any(kw in message for kw in analysis_keywords)
+    if looks_like_asset_query and llm_error:
+        q = raw_message
+        hint = (
+            "### AI 助手暂时无法响应\n\n"
+            f"**原因**：{llm_error}\n\n"
+            f"**您的问题**：{q}\n\n"
+            "本地资产库暂未匹配到您询问的具体标的，建议：\n\n"
+            "1. 输入完整基金名称，例如 **东方人工智能主题混合A**\n"
+            "2. 直接输入6位基金代码，例如 **分析 017126**\n"
+            "3. 从「基金」页面的搜索框找到基金后，点击分析按钮\n"
+            "4. 请稍等片刻后重试，AI大模型服务可能正在恢复\n\n"
+            "⚠️ 风险提示：AI分析仅供参考，不构成投资建议。"
+        )
+        return jsonify({
+            "response": hint,
+            "category": "asset_not_found",
+            "confidence": 0.5,
+            "model": "Local-Fallback",
+            "intent": "asset_not_found",
+            "llm_error": llm_error,
+        })
+
+    news_query = any(kw in message for kw in ["新闻", "快讯", "资讯", "最新", "时效"])
     if any(kw in message for kw in ["市场", "行情", "大盘", "指数"]):
         category = "market"
     elif any(kw in message for kw in ["选股", "股票", "推荐", "买什么"]):
@@ -2035,6 +2677,8 @@ def chat():
 
     responses = CHAT_RESPONSES[category]
     response = random.choice(responses)
+    if news_query:
+        response = _ensure_latest_news_snapshot(response)
 
     return jsonify({
         "response": response,
@@ -2187,9 +2831,11 @@ def fund_search():
         return jsonify({"query": q, "count": 0, "items": []})
 
     keyword = q.lower()
+    keyword_digits = re.sub(r"\D", "", keyword)
     pool = _get_fund_search_pool()
     exact_code = []
     prefix_code = []
+    contain_code = []
     fuzzy_name = []
     fuzzy_pinyin = []
 
@@ -2200,10 +2846,18 @@ def fund_search():
         pinyin_full = str(fund.get("pinyin_full", "")).strip().lower()
         if not code and not name:
             continue
-        if keyword == code.lower():
+        code_lower = code.lower()
+        code_digits = re.sub(r"\D", "", code_lower)
+        if keyword == code_lower:
             exact_code.append(fund)
-        elif code.lower().startswith(keyword):
+        elif keyword and code_lower.startswith(keyword):
             prefix_code.append(fund)
+        elif (
+            keyword and keyword in code_lower
+        ) or (
+            keyword_digits and code_digits and keyword_digits in code_digits
+        ):
+            contain_code.append(fund)
         elif keyword in name.lower():
             fuzzy_name.append(fund)
         elif keyword and (keyword in pinyin_short or keyword in pinyin_full):
@@ -2211,7 +2865,7 @@ def fund_search():
 
     merged = []
     seen = set()
-    for group in (exact_code, prefix_code, fuzzy_name, fuzzy_pinyin):
+    for group in (exact_code, prefix_code, contain_code, fuzzy_name, fuzzy_pinyin):
         for item in group:
             code = item.get("code", "")
             if code in seen:
@@ -2222,6 +2876,16 @@ def fund_search():
                 break
         if len(merged) >= limit:
             break
+
+    # 兜底：若用户输入 6 位代码但池中未命中，仍返回可添加候选，避免“完全搜不到”
+    if not merged:
+        code_only = re.sub(r"\D", "", q)
+        if len(code_only) == 6:
+            merged.append({
+                "code": code_only,
+                "name": f"基金{code_only}",
+                "category": "基金",
+            })
 
     return jsonify({
         "query": q,
@@ -2249,9 +2913,11 @@ def stock_search():
         return jsonify({"query": q, "count": 0, "items": []})
 
     keyword = q.lower()
+    keyword_digits = re.sub(r"\D", "", keyword)
     pool = _get_stock_search_pool()
     exact_code = []
     prefix_code = []
+    contain_code = []
     fuzzy_name = []
 
     for stock in pool:
@@ -2259,16 +2925,24 @@ def stock_search():
         name = str(stock.get("name", "")).strip()
         if not code and not name:
             continue
-        if keyword == code.lower():
+        code_lower = code.lower()
+        code_digits = re.sub(r"\D", "", code_lower)
+        if keyword == code_lower:
             exact_code.append(stock)
-        elif code.lower().startswith(keyword):
+        elif keyword and code_lower.startswith(keyword):
             prefix_code.append(stock)
+        elif (
+            keyword and keyword in code_lower
+        ) or (
+            keyword_digits and code_digits and keyword_digits in code_digits
+        ):
+            contain_code.append(stock)
         elif keyword in name.lower():
             fuzzy_name.append(stock)
 
     merged = []
     seen = set()
-    for group in (exact_code, prefix_code, fuzzy_name):
+    for group in (exact_code, prefix_code, contain_code, fuzzy_name):
         for item in group:
             code = item.get("code", "")
             if code in seen:
@@ -2306,28 +2980,45 @@ def asset_search():
         return jsonify({"query": q, "count": 0, "items": []})
 
     keyword = q.lower()
+    keyword_digits = re.sub(r"\D", "", keyword)
     results = []
     seen = set()
 
-    # 先股票：满足用户输入股票代码时优先命中
+    stock_exact_code = []
+    stock_prefix_code = []
+    stock_contain_code = []
+    stock_fuzzy_name = []
+    fund_exact_code = []
+    fund_prefix_code = []
+    fund_contain_code = []
+    fund_fuzzy_name = []
+    fund_fuzzy_pinyin = []
+
     for stock in _get_stock_search_pool():
         code = str(stock.get("code", "")).strip()
         name = str(stock.get("name", "")).strip()
         if not code and not name:
             continue
-        if keyword == code.lower() or code.lower().startswith(keyword) or keyword in name.lower():
-            k = ("股票", code)
-            if k in seen:
-                continue
-            seen.add(k)
-            results.append({
-                "code": code,
-                "name": name,
-                "category": stock.get("category", "股票"),
-                "asset_type": "股票",
-            })
-            if len(results) >= limit:
-                return jsonify({"query": q, "count": len(results), "items": results})
+        code_lower = code.lower()
+        code_digits = re.sub(r"\D", "", code_lower)
+        item = {
+            "code": code,
+            "name": name,
+            "category": stock.get("category", "股票"),
+            "asset_type": "股票",
+        }
+        if keyword == code_lower:
+            stock_exact_code.append(item)
+        elif keyword and code_lower.startswith(keyword):
+            stock_prefix_code.append(item)
+        elif (
+            keyword and keyword in code_lower
+        ) or (
+            keyword_digits and code_digits and keyword_digits in code_digits
+        ):
+            stock_contain_code.append(item)
+        elif keyword in name.lower():
+            stock_fuzzy_name.append(item)
 
     for fund in _get_fund_search_pool():
         code = str(fund.get("code", "")).strip()
@@ -2336,29 +3027,80 @@ def asset_search():
         pinyin_full = str(fund.get("pinyin_full", "")).strip().lower()
         if not code and not name:
             continue
-        if (
-            keyword == code.lower()
-            or code.lower().startswith(keyword)
-            or keyword in name.lower()
-            or (keyword and (keyword in pinyin_short or keyword in pinyin_full))
+        code_lower = code.lower()
+        code_digits = re.sub(r"\D", "", code_lower)
+        item = {
+            "code": code,
+            "name": name,
+            "category": fund.get("category", "基金"),
+            "asset_type": "基金",
+        }
+        if keyword == code_lower:
+            fund_exact_code.append(item)
+        elif keyword and code_lower.startswith(keyword):
+            fund_prefix_code.append(item)
+        elif (
+            keyword and keyword in code_lower
+        ) or (
+            keyword_digits and code_digits and keyword_digits in code_digits
         ):
-            k = ("基金", code)
+            fund_contain_code.append(item)
+        elif keyword in name.lower():
+            fund_fuzzy_name.append(item)
+        elif keyword and (keyword in pinyin_short or keyword in pinyin_full):
+            fund_fuzzy_pinyin.append(item)
+
+    merge_groups = (
+        stock_exact_code,
+        fund_exact_code,
+        stock_prefix_code,
+        fund_prefix_code,
+        stock_contain_code,
+        fund_contain_code,
+        stock_fuzzy_name,
+        fund_fuzzy_name,
+        fund_fuzzy_pinyin,
+    )
+    for group in merge_groups:
+        for item in group:
+            k = (item.get("asset_type", ""), item.get("code", ""))
             if k in seen:
                 continue
             seen.add(k)
-            results.append({
-                "code": code,
-                "name": name,
-                "category": fund.get("category", "基金"),
-                "asset_type": "基金",
-            })
+            results.append(item)
             if len(results) >= limit:
-                break
+                return jsonify({"query": q, "count": len(results), "items": results})
 
     return jsonify({
         "query": q,
         "count": len(results),
         "items": results,
+    })
+
+
+@app.route("/api/hs300-return")
+def hs300_return():
+    """
+    获取沪深300收益率曲线（真实数据）
+    返回:
+    - dates: 日期数组
+    - returns: 收益率数组（百分比，起点为 0）
+    """
+    days_text = str(request.args.get("days", "365")).strip()
+    try:
+        days = min(max(int(days_text), 30), 1000)
+    except Exception:
+        days = 365
+
+    bench_rows = _fetch_hs300_normalized_series(days=days)
+    if not bench_rows:
+        return jsonify({"dates": [], "returns": []})
+
+    dates = [x["date"] for x in bench_rows]
+    returns = [round((float(x["benchmark"]) - 1.0) * 100, 2) for x in bench_rows]
+    return jsonify({
+        "dates": dates,
+        "returns": returns,
     })
 
 

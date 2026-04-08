@@ -399,7 +399,7 @@
                     <div class="portfolio-grid">
                         <div class="card" style="grid-column: 1 / -1">
                             <div class="card-header">
-                                <h3>组合净值走势 vs 沪深300</h3>
+                                <h3>收益率曲线（我的组合 vs 沪深300）</h3>
                                 <div class="card-actions">
                                     <button class="btn-sm active">近半年</button>
                                     <button class="btn-sm">近一年</button>
@@ -423,15 +423,7 @@
                             <div class="card-body" style="padding:0">
                                 <table class="stock-table compact" id="holdingsTable">
                                     <thead>
-                                        <tr>
-                                            <th>名称</th>
-                                            <th>类型</th>
-                                            <th>持仓</th>
-                                            <th>现价</th>
-                                            <th>盈亏</th>
-                                            <th>收益率</th>
-                                            <th>操作</th>
-                                        </tr>
+                                        <tr id="holdingsTableHeadRow"></tr>
                                     </thead>
                                     <tbody id="holdingsBody"></tbody>
                                 </table>
@@ -491,6 +483,82 @@
                         <div class="modal-footer">
                             <button class="btn-secondary" onclick="closeAddHoldingModal()">取消</button>
                             <button class="btn-primary" onclick="submitAddHolding()">确认添加</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="modal hidden" id="editHoldingModal">
+                    <div class="modal-mask" onclick="closeEditHoldingModal()"></div>
+                    <div class="modal-panel">
+                        <div class="modal-header">
+                            <h3>编辑持仓</h3>
+                            <button class="modal-close" onclick="closeEditHoldingModal()">×</button>
+                        </div>
+                        <div class="modal-body">
+                            <input type="hidden" id="editHoldingCode">
+                            <input type="hidden" id="editHoldingAssetType">
+                            <div class="modal-tip" id="editHoldingTitle" style="margin-bottom:12px"></div>
+                            <div id="editStockFields" class="hidden">
+                                <div class="modal-form-grid">
+                                    <label>持仓数量（股）
+                                        <input id="editStockShares" type="number" min="1" step="1">
+                                    </label>
+                                    <label>成本价
+                                        <input id="editStockCost" type="number" min="0.01" step="0.01">
+                                    </label>
+                                    <label>现价
+                                        <input id="editStockCurrent" type="number" min="0.01" step="0.01">
+                                    </label>
+                                </div>
+                            </div>
+                            <div id="editFundFields" class="hidden">
+                                <div class="modal-form-grid">
+                                    <label>持有金额
+                                        <input id="editFundAmount" type="number" min="0.01" step="0.01">
+                                    </label>
+                                    <label>持有收益
+                                        <input id="editFundProfit" type="number" step="0.01" placeholder="亏损可填负数">
+                                    </label>
+                                </div>
+                            </div>
+                            <div class="modal-tip">修改后将保存到浏览器本地。</div>
+                        </div>
+                        <div class="modal-footer">
+                            <button class="btn-secondary" onclick="closeEditHoldingModal()">取消</button>
+                            <button class="btn-primary" onclick="submitEditHolding()">保存</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="modal hidden" id="importPreviewModal">
+                    <div class="modal-mask" onclick="closeImportPreviewModal()"></div>
+                    <div class="modal-panel import-preview-panel">
+                        <div class="modal-header">
+                            <h3>截图导入预览</h3>
+                            <button class="modal-close" onclick="closeImportPreviewModal()">×</button>
+                        </div>
+                        <div class="modal-body">
+                            <div class="modal-tip">请先确认识别结果（名称/代码/类型），只会导入你勾选的条目。</div>
+                            <div class="stock-table-wrapper import-preview-table-wrap">
+                                <table class="stock-table compact">
+                                    <thead>
+                                        <tr>
+                                            <th style="width:70px;">导入</th>
+                                            <th style="width:90px;">类型</th>
+                                            <th style="width:120px;">代码</th>
+                                            <th>名称</th>
+                                            <th style="width:140px;">持仓/金额</th>
+                                            <th style="width:120px;">持有收益</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="importPreviewBody"></tbody>
+                                </table>
+                            </div>
+                            <div class="modal-tip" id="importPreviewSummary"></div>
+                        </div>
+                        <div class="modal-footer">
+                            <button class="btn-secondary" onclick="closeImportPreviewModal()">取消</button>
+                            <button class="btn-primary" onclick="confirmImportPreview()">确认导入</button>
                         </div>
                     </div>
                 </div>

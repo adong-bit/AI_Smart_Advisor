@@ -18,6 +18,8 @@ const RISK_STORAGE_KEY = 'smartAdvisorRiskResultV1';
 const HOLDINGS_STORAGE_KEY = 'smartAdvisorMockHoldingsV1';
 let portfolioRawData = null;
 let selectedAddAsset = null;
+let pendingOcrImportItems = [];
+let hs300ReturnCache = null;
 const LOCAL_FUND_SUGGEST_POOL = [
     { code: '161725', name: '招商中证白酒指数(LOF)', category: 'LOF' },
     { code: '159915', name: '创业板ETF', category: 'ETF' },
@@ -782,41 +784,72 @@ function renderAllocDetails(allocation) {
     ).join('');
 }
 
-function renderBacktest() {
-    const chart = echarts.init(document.getElementById('backtestChart'));
-    const days = 365;
-    const dates = [];
-    const portfolio = [];
-    const benchmark = [];
-    let pNav = 100, bNav = 100;
+async function getHs300ReturnSeries(days = 365) {
+    if (hs300ReturnCache && Array.isArray(hs300ReturnCache.returns) && hs300ReturnCache.returns.length >= Math.min(days, 60)) {
+        return hs300ReturnCache;
+    }
+    const res = await fetch(`/api/hs300-return?days=${days}`);
+    const data = await res.json();
+    const cache = {
+        dates: (data.dates || []).map(d => String(d)),
+        returns: (data.returns || []).map(v => Number(v) || 0)
+    };
+    hs300ReturnCache = cache;
+    return cache;
+}
 
-    for (let i = 0; i < days; i++) {
-        const d = new Date();
-        d.setDate(d.getDate() - (days - i));
-        dates.push(d.toISOString().slice(5, 10));
-        pNav *= (1 + (Math.random() - 0.47) * 0.02);
-        bNav *= (1 + (Math.random() - 0.48) * 0.025);
-        portfolio.push(+pNav.toFixed(2));
-        benchmark.push(+bNav.toFixed(2));
+async function renderBacktest() {
+    const chart = echarts.init(document.getElementById('backtestChart'));
+    let dates = [];
+    let benchmarkReturns = [];
+    let portfolioReturns = [];
+    try {
+        const data = await getHs300ReturnSeries(365);
+        dates = (data.dates || []).map(d => d.slice(5));
+        benchmarkReturns = (data.returns || []).map(v => Number(v) || 0);
+    } catch (e) {
+        dates = [];
+        benchmarkReturns = [];
+    }
+
+    if (!dates.length || !benchmarkReturns.length) {
+        const days = 365;
+        let p = 0;
+        let b = 0;
+        for (let i = 0; i < days; i++) {
+            const d = new Date();
+            d.setDate(d.getDate() - (days - i));
+            dates.push(d.toISOString().slice(5, 10));
+            p += (Math.random() - 0.5) * 1.6;
+            b += (Math.random() - 0.5) * 1.2;
+            portfolioReturns.push(+p.toFixed(2));
+            benchmarkReturns.push(+b.toFixed(2));
+        }
+    } else {
+        let p = 0;
+        for (let i = 0; i < benchmarkReturns.length; i++) {
+            p += ((benchmarkReturns[i] - (benchmarkReturns[i - 1] ?? 0)) * 0.9) + (Math.random() - 0.5) * 0.3;
+            portfolioReturns.push(+p.toFixed(2));
+        }
     }
 
     chart.setOption({
         backgroundColor: 'transparent',
         tooltip: { trigger: 'axis', backgroundColor: '#1a2332', borderColor: '#334155', textStyle: { color: '#e2e8f0', fontSize: 12 }},
-        legend: { data: ['AI配置组合', '沪深300'], textStyle: { color: '#94a3b8' }, top: 0 },
+        legend: { data: ['AI配置组合收益率', '沪深300收益率'], textStyle: { color: '#94a3b8' }, top: 0 },
         grid: { left: 50, right: 20, top: 40, bottom: 30 },
         xAxis: { type: 'category', data: dates, axisLabel: { color: '#64748b', fontSize: 11 }, axisLine: { lineStyle: { color: '#1e293b' }}},
-        yAxis: { type: 'value', axisLabel: { color: '#64748b', fontSize: 11, formatter: v => v.toFixed(0) }, splitLine: { lineStyle: { color: '#1e293b' }}},
+        yAxis: { type: 'value', axisLabel: { color: '#64748b', fontSize: 11, formatter: v => `${v.toFixed(0)}%` }, splitLine: { lineStyle: { color: '#1e293b' }}},
         series: [
             {
-                name: 'AI配置组合', type: 'line', data: portfolio, smooth: true, symbol: 'none',
+                name: 'AI配置组合收益率', type: 'line', data: portfolioReturns, smooth: true, symbol: 'none',
                 lineStyle: { color: '#3b82f6', width: 2 },
                 areaStyle: { color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
                     { offset: 0, color: 'rgba(59,130,246,0.2)' }, { offset: 1, color: 'rgba(59,130,246,0)' }
                 ])}
             },
             {
-                name: '沪深300', type: 'line', data: benchmark, smooth: true, symbol: 'none',
+                name: '沪深300收益率', type: 'line', data: benchmarkReturns, smooth: true, symbol: 'none',
                 lineStyle: { color: '#f59e0b', width: 1.5, type: 'dashed' }
             }
         ]
@@ -922,9 +955,6 @@ async function loadPortfolio() {
         refreshPortfolioByHoldings();
         renderHoldingTabs();
         renderHoldings();
-        renderRiskMetrics(data.risk_metrics);
-        renderIndustryPie(data.industry_distribution);
-        renderRebalanceAlerts(data.rebalance_alerts);
     } catch (e) {
         console.error('Failed to load portfolio:', e);
     }
@@ -953,7 +983,7 @@ function renderPortfolioSummary(data) {
         </div>
         <div class="summary-card">
             <div class="summary-label">夏普比率</div>
-            <div class="summary-value" style="color:#10b981">${data.risk_metrics.sharpe_ratio}</div>
+            <div class="summary-value" style="color:#10b981">${Number(data?.risk_metrics?.sharpe_ratio || 0).toFixed(2)}</div>
             <div class="summary-sub">优于82%的组合</div>
         </div>`;
 }
@@ -963,6 +993,8 @@ function normalizeHolding(item) {
     const shares = Number(item.shares) || 0;
     const cost = Number(item.cost) || 0;
     const current = Number(item.current) || 0;
+    const createdAtRaw = item.created_at || item.createdAt || '';
+    const createdAt = Number.isNaN(new Date(createdAtRaw).getTime()) ? new Date().toISOString() : new Date(createdAtRaw).toISOString();
     const unit = item.unit || (type === '基金' ? '份' : '股');
     const profit = (current - cost) * shares;
     const returnPct = cost > 0 ? ((current - cost) / cost) * 100 : 0;
@@ -972,6 +1004,7 @@ function normalizeHolding(item) {
         asset_type: type,
         shares: Math.round(shares),
         unit,
+        created_at: createdAt,
         cost: +cost.toFixed(2),
         current: +current.toFixed(2),
         market_value: +(current * shares).toFixed(2),
@@ -1004,43 +1037,285 @@ function loadOrInitMockHoldings(defaultHoldings) {
     return initial;
 }
 
+function inferIndustryByHolding(h) {
+    if (!h) return '其他';
+    if ((h.asset_type || '股票') === '基金') {
+        const n = (h.name || '').toLowerCase();
+        if (n.includes('医药')) return '医药基金';
+        if (n.includes('新能源')) return '新能源基金';
+        if (n.includes('白酒')) return '消费基金';
+        if (n.includes('300') || n.includes('etf')) return '指数基金';
+        return '基金';
+    }
+    const name = h.name || '';
+    if (/(银行|证券|保险)/.test(name)) return '金融';
+    if (/(医药|医疗|药)/.test(name)) return '医药';
+    if (/(新能源|电池|光伏|锂|宁德|比亚迪)/.test(name)) return '新能源';
+    if (/(白酒|食品|消费|家电|美的|茅台|五粮液|汾酒|泸州)/.test(name)) return '消费';
+    if (/(科技|半导体|电子|通信|AI|人工智能|新易盛)/.test(name)) return '科技';
+    if (/(有色|矿业|煤|钢|资源)/.test(name)) return '周期资源';
+    return '其他行业';
+}
+
+function computeIndustryDistributionFromHoldings(holdings) {
+    const list = Array.isArray(holdings) ? holdings : [];
+    const total = list.reduce((sum, h) => sum + (Number(h.market_value) || 0), 0);
+    if (total <= 0) return [];
+    const bucket = {};
+    list.forEach(h => {
+        const label = inferIndustryByHolding(h);
+        const mv = Number(h.market_value) || 0;
+        bucket[label] = (bucket[label] || 0) + mv;
+    });
+    return Object.entries(bucket)
+        .map(([name, value]) => ({ name, value: +(value / total * 100).toFixed(2) }))
+        .sort((a, b) => b.value - a.value);
+}
+
+function computeRiskMetricsFromHoldings(holdings) {
+    const list = Array.isArray(holdings) ? holdings : [];
+    const values = list.map(h => Number(h.market_value) || 0);
+    const totalValue = values.reduce((a, b) => a + b, 0);
+    const returns = list.map(h => Number(h.return_pct) || 0);
+    const weightedReturn = totalValue > 0
+        ? list.reduce((sum, h) => sum + (Number(h.market_value) || 0) * (Number(h.return_pct) || 0), 0) / totalValue
+        : 0;
+    const mean = returns.length ? returns.reduce((a, b) => a + b, 0) / returns.length : 0;
+    const variance = returns.length
+        ? returns.reduce((sum, r) => sum + Math.pow(r - mean, 2), 0) / returns.length
+        : 0;
+    const volatility = Math.sqrt(Math.max(variance, 0));
+    const sharpe = volatility > 0.01 ? weightedReturn / volatility : 0;
+    const worst = returns.length ? Math.min(...returns) : 0;
+    const maxDrawdown = Math.min(-Math.abs(worst) * 1.2, -0.5);
+    const stockValue = list
+        .filter(h => (h.asset_type || '股票') === '股票')
+        .reduce((sum, h) => sum + (Number(h.market_value) || 0), 0);
+    const stockRatio = totalValue > 0 ? stockValue / totalValue : 0;
+    const beta = 0.7 + stockRatio * 0.8;
+    const alpha = weightedReturn - beta * 0.9;
+    const var95 = -(Math.abs(mean) + 1.65 * volatility * 0.6);
+    return {
+        sharpe_ratio: +sharpe.toFixed(2),
+        max_drawdown: +maxDrawdown.toFixed(2),
+        volatility: +volatility.toFixed(2),
+        beta: +beta.toFixed(2),
+        alpha: +alpha.toFixed(2),
+        var_95: +var95.toFixed(2)
+    };
+}
+
+function computeRebalanceAlertsFromHoldings(holdings) {
+    const list = Array.isArray(holdings) ? holdings : [];
+    if (!list.length) {
+        return [{
+            type: 'info',
+            message: '当前无持仓数据，添加持仓后将自动生成风险与调仓建议。'
+        }];
+    }
+    const total = list.reduce((sum, h) => sum + (Number(h.market_value) || 0), 0);
+    const sorted = list.slice().sort((a, b) => (Number(b.market_value) || 0) - (Number(a.market_value) || 0));
+    const top = sorted[0];
+    const topWeight = total > 0 ? ((Number(top.market_value) || 0) / total * 100) : 0;
+    const fundValue = list
+        .filter(h => (h.asset_type || '股票') === '基金')
+        .reduce((sum, h) => sum + (Number(h.market_value) || 0), 0);
+    const stockValue = list
+        .filter(h => (h.asset_type || '股票') === '股票')
+        .reduce((sum, h) => sum + (Number(h.market_value) || 0), 0);
+    const fundRatio = total > 0 ? fundValue / total * 100 : 0;
+    const stockRatio = total > 0 ? stockValue / total * 100 : 0;
+    const losers = list.filter(h => (Number(h.return_pct) || 0) < -8);
+    const winners = list.filter(h => (Number(h.return_pct) || 0) > 15);
+
+    const alerts = [];
+    if (top && topWeight > 30) {
+        alerts.push({
+            type: 'warning',
+            message: `${top.name} 当前仓位约 ${topWeight.toFixed(1)}%，集中度偏高，建议分批降至 20%-25% 区间。`
+        });
+    } else {
+        alerts.push({
+            type: 'success',
+            message: `单一标的最大仓位约 ${topWeight.toFixed(1)}%，集中度可控。`
+        });
+    }
+    alerts.push({
+        type: 'info',
+        message: `当前结构：股票 ${stockRatio.toFixed(1)}%，基金 ${fundRatio.toFixed(1)}%。建议按风险偏好做股基再平衡。`
+    });
+    if (losers.length) {
+        alerts.push({
+            type: 'warning',
+            message: `${losers.length} 个持仓回撤超过 8%，建议检查基本面并设置分级止损/减仓规则。`
+        });
+    } else if (winners.length) {
+        alerts.push({
+            type: 'success',
+            message: `${winners.length} 个持仓收益超过 15%，可考虑“止盈一部分 + 保留趋势仓位”。`
+        });
+    } else {
+        alerts.push({
+            type: 'info',
+            message: '组合收益分布较均衡，优先维持纪律并按月复盘。'
+        });
+    }
+    return alerts.slice(0, 3);
+}
+
 function refreshPortfolioByHoldings() {
     if (!portfolioRawData) return;
     const totalCost = holdingsData.reduce((sum, h) => sum + h.shares * h.cost, 0);
     const totalCurrent = holdingsData.reduce((sum, h) => sum + h.shares * h.current, 0);
     const totalProfit = totalCurrent - totalCost;
     const totalReturn = totalCost > 0 ? (totalProfit / totalCost) * 100 : 0;
+    const riskMetrics = computeRiskMetricsFromHoldings(holdingsData);
+    const industryDistribution = computeIndustryDistributionFromHoldings(holdingsData);
+    const rebalanceAlerts = computeRebalanceAlertsFromHoldings(holdingsData);
     renderPortfolioSummary({
         ...portfolioRawData,
         holdings: holdingsData,
         total_cost: totalCost,
         total_value: totalCurrent,
         total_profit: totalProfit,
-        total_return: totalReturn
+        total_return: totalReturn,
+        risk_metrics: riskMetrics
     });
-    renderPortfolioChart(portfolioRawData.history || []);
+    renderPortfolioChart(portfolioRawData.history || [], holdingsData);
+    renderRiskMetrics(riskMetrics);
+    renderIndustryPie(industryDistribution);
+    renderRebalanceAlerts(rebalanceAlerts);
 }
 
-function renderPortfolioChart(history) {
+function buildDynamicPortfolioReturnSeries(history, holdings, hs300Series = null) {
+    const rows = Array.isArray(history) ? history : [];
+    const list = Array.isArray(holdings) ? holdings : [];
+    if (!rows.length) return { dates: [], portfolioReturns: [], benchmarkReturns: [] };
+
+    // 空持仓：组合收益率应为 0%，避免出现“无持仓仍有收益”的误导
+    if (!list.length) {
+        const fallbackRows = rows.slice(-60);
+        let dates = fallbackRows.map(h => String(h.date || '').slice(5));
+        let benchmarkReturns = fallbackRows.map(h => +((((Number(h.benchmark) || 1) - 1) * 100).toFixed(2)));
+        if (hs300Series && Array.isArray(hs300Series.returns) && hs300Series.returns.length) {
+            const hsReturns = hs300Series.returns.map(v => Number(v) || 0);
+            const hsDates = (hs300Series.dates || []).map(d => String(d).slice(5));
+            const nAlign = Math.min(hsReturns.length, fallbackRows.length);
+            if (nAlign >= 2) {
+                dates = hsDates.slice(-nAlign);
+                benchmarkReturns = hsReturns.slice(-nAlign).map(v => +v.toFixed(2));
+            }
+        }
+        const portfolioReturns = dates.map(() => 0);
+        return { dates, portfolioReturns, benchmarkReturns };
+    }
+
+    const createdTimes = list
+        .map(h => new Date(h.created_at || '').getTime())
+        .filter(ts => Number.isFinite(ts) && ts > 0);
+    const startTs = createdTimes.length ? Math.min(...createdTimes) : null;
+    const sourceRows = startTs
+        ? rows.filter(r => {
+            const ts = new Date(r.date || '').getTime();
+            return Number.isFinite(ts) && ts >= startTs;
+        })
+        : rows;
+    const effectiveRows = sourceRows.length >= 2 ? sourceRows : rows.slice(-60);
+
+    const totalCost = list.reduce((sum, h) => sum + (Number(h.shares) || 0) * (Number(h.cost) || 0), 0);
+    const totalCurrent = list.reduce((sum, h) => sum + (Number(h.shares) || 0) * (Number(h.current) || 0), 0);
+    const targetReturn = totalCost > 0 ? ((totalCurrent - totalCost) / totalCost) * 100 : 0;
+    const assetReturns = list.map(h => Number(h.return_pct) || 0);
+    const avgReturn = assetReturns.length ? assetReturns.reduce((a, b) => a + b, 0) / assetReturns.length : 0;
+    const variance = assetReturns.length
+        ? assetReturns.reduce((sum, r) => sum + Math.pow(r - avgReturn, 2), 0) / assetReturns.length
+        : 0;
+    const vol = Math.sqrt(Math.max(variance, 0));
+    const stockValue = list
+        .filter(h => (h.asset_type || '股票') === '股票')
+        .reduce((sum, h) => sum + (Number(h.market_value) || 0), 0);
+    const totalValue = list.reduce((sum, h) => sum + (Number(h.market_value) || 0), 0);
+    const stockRatio = totalValue > 0 ? stockValue / totalValue : 0.5;
+    const beta = 0.55 + stockRatio * 0.85;
+    const dates = effectiveRows.map(h => String(h.date || '').slice(5));
+    let benchmarkReturns = effectiveRows.map(h => +((((Number(h.benchmark) || 1) - 1) * 100).toFixed(2)));
+    if (hs300Series && Array.isArray(hs300Series.returns) && hs300Series.returns.length) {
+        const hsReturns = hs300Series.returns.map(v => Number(v) || 0);
+        const hsDates = (hs300Series.dates || []).map(d => String(d).slice(5));
+        const nAlign = Math.min(hsReturns.length, effectiveRows.length);
+        if (nAlign >= 2) {
+            benchmarkReturns = hsReturns.slice(-nAlign).map(v => +v.toFixed(2));
+            // 使用同源日期，确保“我的持有”和“智能配置”基准曲线口径一致
+            const alignedDates = hsDates.slice(-nAlign);
+            if (alignedDates.length === benchmarkReturns.length) {
+                for (let i = 0; i < nAlign; i++) {
+                    dates[i] = alignedDates[i] || dates[i];
+                }
+            }
+        }
+    }
+    const n = Math.min(effectiveRows.length, benchmarkReturns.length, dates.length);
+    const useDates = dates.slice(0, n);
+    benchmarkReturns = benchmarkReturns.slice(0, n);
+    const benchmarkEnd = benchmarkReturns[n - 1] || 0;
+
+    let seed = 0;
+    list.forEach(h => {
+        const token = `${h.code || ''}${h.name || ''}`;
+        for (let i = 0; i < token.length; i++) seed += token.charCodeAt(i);
+    });
+    const phase = (seed % 360) * Math.PI / 180;
+
+    const portfolioReturns = [];
+    for (let i = 0; i < n; i++) {
+        const t = n > 1 ? i / (n - 1) : 1;
+        const linearTarget = t * targetReturn;
+        const benchCenter = benchmarkReturns[i] - t * benchmarkEnd;
+        const wave = Math.sin(t * Math.PI * 4 + phase) * t * (1 - t);
+        const val = linearTarget + benchCenter * beta * 0.35 + wave * Math.min(8, vol * 0.18);
+        portfolioReturns.push(val);
+    }
+    // 强制让终点与当前持仓总收益率一致
+    const endDiff = targetReturn - (portfolioReturns[n - 1] || 0);
+    for (let i = 0; i < n; i++) {
+        const t = n > 1 ? i / (n - 1) : 1;
+        portfolioReturns[i] = +(portfolioReturns[i] + endDiff * t).toFixed(2);
+    }
+    // 起点保持 0
+    if (portfolioReturns.length) portfolioReturns[0] = 0;
+
+    return { dates: useDates, portfolioReturns, benchmarkReturns };
+}
+
+function renderPortfolioChart(history, holdings) {
     const chart = echarts.init(document.getElementById('portfolioChart'));
-    chart.setOption({
+    const render = (dates, portfolioReturns, benchmarkReturns) => chart.setOption({
         backgroundColor: 'transparent',
         tooltip: { trigger: 'axis', backgroundColor: '#1a2332', borderColor: '#334155', textStyle: { color: '#e2e8f0', fontSize: 12 }},
-        legend: { data: ['我的组合', '沪深300'], textStyle: { color: '#94a3b8' }},
+        legend: { data: ['我的组合收益率', '沪深300收益率'], textStyle: { color: '#94a3b8' }},
         grid: { left: 60, right: 20, top: 40, bottom: 30 },
-        xAxis: { type: 'category', data: history.map(h => h.date.slice(5)), axisLabel: { color: '#64748b', fontSize: 11 }, axisLine: { lineStyle: { color: '#1e293b' }}},
-        yAxis: { type: 'value', axisLabel: { color: '#64748b', fontSize: 11 }, splitLine: { lineStyle: { color: '#1e293b' }}},
+        xAxis: { type: 'category', data: dates, axisLabel: { color: '#64748b', fontSize: 11 }, axisLine: { lineStyle: { color: '#1e293b' }}},
+        yAxis: { type: 'value', axisLabel: { color: '#64748b', fontSize: 11, formatter: v => `${v}%` }, splitLine: { lineStyle: { color: '#1e293b' }}},
         series: [
             {
-                name: '我的组合', type: 'line', data: history.map(h => h.nav), smooth: true, symbol: 'none',
+                name: '我的组合收益率', type: 'line', data: portfolioReturns, smooth: true, symbol: 'none',
                 lineStyle: { color: '#3b82f6', width: 2 },
                 areaStyle: { color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
                     { offset: 0, color: 'rgba(59,130,246,0.15)' }, { offset: 1, color: 'rgba(59,130,246,0)' }
                 ])}
             },
-            { name: '沪深300', type: 'line', data: history.map(h => h.benchmark), smooth: true, symbol: 'none', lineStyle: { color: '#f59e0b', width: 1.5, type: 'dashed' }}
+            { name: '沪深300收益率', type: 'line', data: benchmarkReturns, smooth: true, symbol: 'none', lineStyle: { color: '#f59e0b', width: 1.5, type: 'dashed' }}
         ]
     });
+    const fallbackSeries = buildDynamicPortfolioReturnSeries(history, holdings);
+    render(fallbackSeries.dates, fallbackSeries.portfolioReturns, fallbackSeries.benchmarkReturns);
+
+    getHs300ReturnSeries(Math.max(180, Array.isArray(history) ? history.length : 180))
+        .then(hs300 => {
+            const latestSeries = buildDynamicPortfolioReturnSeries(history, holdings, hs300);
+            render(latestSeries.dates, latestSeries.portfolioReturns, latestSeries.benchmarkReturns);
+        })
+        .catch(() => {});
     window.addEventListener('resize', () => chart.resize());
 }
 
@@ -1060,7 +1335,24 @@ function switchHoldingTab(tab) {
     updateAddHoldingModalByTab();
 }
 
+function renderHoldingsTableHeader() {
+    const row = document.getElementById('holdingsTableHeadRow');
+    if (!row) return;
+    row.innerHTML = `
+        <th>名称</th>
+        <th>类型</th>
+        <th>持有金额</th>
+        <th>持有收益</th>
+        <th>收益率</th>
+        <th class="holdings-op-head">操作</th>`;
+}
+
+function fundHoldingCostAmount(h) {
+    return +(h.shares * h.cost).toFixed(2);
+}
+
 function renderHoldings() {
+    renderHoldingsTableHeader();
     const filtered = (holdingsData || []).filter(h => {
         const type = h.asset_type || '股票';
         return currentHoldingTab === 'fund' ? type === '基金' : type === '股票';
@@ -1070,9 +1362,10 @@ function renderHoldings() {
     if (currentHoldingPage > totalPages) currentHoldingPage = totalPages;
     if (currentHoldingPage < 1) currentHoldingPage = 1;
 
+    const emptyColspan = 6;
     if (!filtered.length) {
         document.getElementById('holdingsBody').innerHTML =
-            `<tr><td colspan="7" style="text-align:center;color:var(--text-muted);padding:14px 0;">暂无${currentHoldingTab === 'fund' ? '基金' : '股票'}持仓</td></tr>`;
+            `<tr><td colspan="${emptyColspan}" style="text-align:center;color:var(--text-muted);padding:14px 0;">暂无${currentHoldingTab === 'fund' ? '基金' : '股票'}持仓</td></tr>`;
         renderHoldingsPagination(0, 1);
         return;
     }
@@ -1083,16 +1376,23 @@ function renderHoldings() {
     document.getElementById('holdingsBody').innerHTML = pageItems.map(h => {
         const cls = h.return_pct >= 0 ? 'up' : 'down';
         const type = h.asset_type || '股票';
-        const unit = h.unit || (type === '基金' ? '份' : '股');
         const typeClass = type === '基金' ? 'fund' : 'stock';
+        const amount = fundHoldingCostAmount(h);
+        const codeEsc = String(h.code || '').replace(/'/g, "\\'");
+        const typeEsc = String(type).replace(/'/g, "\\'");
+        const opBtns = `<td class="holdings-op-cell">
+            <div class="holdings-op-group">
+                <button type="button" class="table-action-btn" onclick="openEditHoldingModal('${codeEsc}', '${typeEsc}')">编辑</button>
+                <button type="button" class="table-danger-btn" onclick="deleteHolding('${codeEsc}', '${typeEsc}')">删除</button>
+            </div>
+        </td>`;
         return `<tr>
             <td><strong>${h.name}</strong><br><span style="color:var(--text-muted);font-size:11px">${h.code}</span></td>
             <td><span class="holding-type-tag ${typeClass}">${type}</span></td>
-            <td>${h.shares}${unit}</td>
-            <td>¥${h.current.toFixed(2)}</td>
-            <td class="${cls}">${h.profit >= 0 ? '+' : ''}${h.profit.toFixed(0)}</td>
+            <td>¥${amount.toFixed(2)}</td>
+            <td class="${cls}">${h.profit >= 0 ? '+' : ''}${h.profit.toFixed(2)}</td>
             <td class="${cls}">${h.return_pct >= 0 ? '+' : ''}${h.return_pct.toFixed(2)}%</td>
-            <td><button class="table-danger-btn" onclick="deleteHolding('${h.code}', '${h.asset_type}')">删除</button></td>
+            ${opBtns}
         </tr>`;
     }).join('');
 
@@ -1171,8 +1471,23 @@ function submitAddHolding() {
     }
 
     if (!selectedAddAsset || !selectedAddAsset.code) {
-        alert(`请从模糊匹配结果中选择${currentHoldingTab === 'fund' ? '基金' : '股票'}，不能只手动输入文本。`);
-        return;
+        const typeText = currentHoldingTab === 'fund' ? '基金' : '股票';
+        const codeMatch = keyword.match(/\b(\d{6})\b/);
+        if (codeMatch) {
+            const code = codeMatch[1];
+            const rawName = keyword
+                .replace(codeMatch[0], '')
+                .replace(/[()（）]/g, '')
+                .trim();
+            selectedAddAsset = {
+                code,
+                name: rawName || `${typeText}${code}`,
+                asset_type: currentHoldingTab === 'fund' ? '基金' : '股票'
+            };
+        } else {
+            alert(`未命中模糊匹配结果。你可以继续输入更短关键词，或直接输入6位${typeText}代码后再确认添加。`);
+            return;
+        }
     }
 
     const asset = {
@@ -1247,6 +1562,16 @@ function mergeLocalAssetSuggestions(keyword, limit = 12) {
     return dedup;
 }
 
+function getLocalSuggestionsByHoldingTab(keyword, tab, limit = 12) {
+    if (tab === 'fund') {
+        return getLocalFundSuggestions(keyword, limit).map(x => ({ ...x, asset_type: '基金' }));
+    }
+    if (tab === 'stock') {
+        return getLocalStockSuggestions(keyword, limit).map(x => ({ ...x, asset_type: '股票' }));
+    }
+    return mergeLocalAssetSuggestions(keyword, limit);
+}
+
 function initAddFundSuggest() {
     const input = document.getElementById('addFundKeyword');
     const suggest = document.getElementById('addFundSuggest');
@@ -1271,30 +1596,48 @@ function initAddFundSuggest() {
             suggest.classList.add('show');
             try {
                 const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), 6000);
-                const res = await fetch(`/api/asset-search?q=${encodeURIComponent(q)}&limit=12`, {
+                const timeoutId = setTimeout(() => controller.abort(), 16000);
+                const searchPath = currentHoldingTab === 'fund' ? '/api/fund-search' : '/api/stock-search';
+                const res = await fetch(`${searchPath}?q=${encodeURIComponent(q)}&limit=12`, {
                     signal: controller.signal
                 });
                 clearTimeout(timeoutId);
                 let items = [];
                 if (res.ok) {
                     const data = await res.json();
-                    items = data.items || [];
+                    const rawItems = data.items || [];
+                    items = rawItems.map(x => ({
+                        ...x,
+                        asset_type: x.asset_type || (currentHoldingTab === 'fund' ? '基金' : '股票')
+                    }));
                 } else {
-                    // 兼容后端未重启到 asset-search 的情况
-                    const [stockRes, fundRes] = await Promise.all([
-                        fetch(`/api/stock-search?q=${encodeURIComponent(q)}&limit=6`),
-                        fetch(`/api/fund-search?q=${encodeURIComponent(q)}&limit=6`)
-                    ]);
-                    const stockData = stockRes.ok ? await stockRes.json() : { items: [] };
-                    const fundData = fundRes.ok ? await fundRes.json() : { items: [] };
-                    const stockItems = (stockData.items || []).map(x => ({ ...x, asset_type: '股票' }));
-                    const fundItems = (fundData.items || []).map(x => ({ ...x, asset_type: '基金' }));
-                    items = [...stockItems, ...fundItems];
+                    // 兼容后端未重启到 stock/fund-search 的情况
+                    const fallbackPath = currentHoldingTab === 'fund' ? '/api/asset-search' : '/api/asset-search';
+                    const fallbackRes = await fetch(`${fallbackPath}?q=${encodeURIComponent(q)}&limit=12`);
+                    const fallbackData = fallbackRes.ok ? await fallbackRes.json() : { items: [] };
+                    const fallbackItems = fallbackData.items || [];
+                    items = fallbackItems.filter(x => {
+                        if (currentHoldingTab === 'fund') return (x.asset_type || '基金') === '基金';
+                        return (x.asset_type || '股票') === '股票';
+                    });
                 }
-                if (!items.length) items = mergeLocalAssetSuggestions(q, 12);
+                if (!items.length) items = getLocalSuggestionsByHoldingTab(q, currentHoldingTab, 12);
                 if (!items.length) {
-                    suggest.innerHTML = `<div class="search-suggest-item"><div class="search-suggest-meta">未找到匹配资产，请更换关键词</div></div>`;
+                    const codeDigits = (q.match(/\b(\d{6})\b/) || [null, ''])[1];
+                    if (currentHoldingTab === 'fund' && codeDigits) {
+                        items = [{
+                            code: codeDigits,
+                            name: `基金${codeDigits}`,
+                            category: '基金',
+                            asset_type: '基金'
+                        }];
+                    }
+                }
+                if (!items.length) {
+                    const tip = currentHoldingTab === 'fund'
+                        ? '未找到匹配基金，请更换关键词'
+                        : '未找到匹配股票，请更换关键词';
+                    suggest.innerHTML = `<div class="search-suggest-item"><div class="search-suggest-meta">${tip}</div></div>`;
                     suggest.classList.add('show');
                     return;
                 }
@@ -1306,7 +1649,7 @@ function initAddFundSuggest() {
                 ).join('');
                 suggest.classList.add('show');
             } catch (e) {
-                const fallback = mergeLocalAssetSuggestions(q, 12);
+                const fallback = getLocalSuggestionsByHoldingTab(q, currentHoldingTab, 12);
                 if (!fallback.length) {
                     suggest.innerHTML = `<div class="search-suggest-item"><div class="search-suggest-meta">搜索失败，请稍后重试</div></div>`;
                     suggest.classList.add('show');
@@ -1367,20 +1710,95 @@ async function handleScreenshotImport(event) {
             alert(data.message || 'OCR识别失败，请检查截图内容。');
             return;
         }
-        let added = 0;
-        let updated = 0;
-        parsed.forEach(item => {
-            const merged = upsertHolding(item);
-            if (merged === 'added') added += 1;
-            if (merged === 'updated') updated += 1;
-        });
-        saveMockHoldings();
-        refreshPortfolioByHoldings();
-        renderHoldings();
-        alert(`截图OCR导入完成：新增 ${added} 条，合并 ${updated} 条。`);
+        pendingOcrImportItems = parsed.map((item, idx) => ({
+            id: idx + 1,
+            selected: true,
+            item: normalizeHolding(item)
+        }));
+        openImportPreviewModal();
     } catch (e) {
         alert('OCR服务调用失败。请确认后端已安装并配置 Tesseract。');
+    } finally {
+        if (event?.target) event.target.value = '';
     }
+}
+
+function openImportPreviewModal() {
+    const modal = document.getElementById('importPreviewModal');
+    if (!modal) return;
+    renderImportPreviewTable();
+    modal.classList.remove('hidden');
+}
+
+function closeImportPreviewModal() {
+    const modal = document.getElementById('importPreviewModal');
+    if (modal) modal.classList.add('hidden');
+    pendingOcrImportItems = [];
+}
+
+function toggleImportPreviewSelection(id, checked) {
+    const target = pendingOcrImportItems.find(x => x.id === id);
+    if (!target) return;
+    target.selected = !!checked;
+    renderImportPreviewSummary();
+}
+
+function renderImportPreviewSummary() {
+    const summary = document.getElementById('importPreviewSummary');
+    if (!summary) return;
+    const total = pendingOcrImportItems.length;
+    const selected = pendingOcrImportItems.filter(x => x.selected).length;
+    summary.textContent = `本次识别 ${total} 条，已勾选 ${selected} 条。仅会导入已勾选条目。`;
+}
+
+function renderImportPreviewTable() {
+    const tbody = document.getElementById('importPreviewBody');
+    if (!tbody) return;
+    if (!pendingOcrImportItems.length) {
+        tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;color:var(--text-muted);padding:14px 0;">暂无可导入条目</td></tr>`;
+        renderImportPreviewSummary();
+        return;
+    }
+    tbody.innerHTML = pendingOcrImportItems.map(row => {
+        const h = row.item;
+        const cls = h.return_pct >= 0 ? 'up' : 'down';
+        const type = h.asset_type === '基金' ? '基金' : '股票';
+        const typeClass = type === '基金' ? 'fund' : 'stock';
+        const holdText = type === '基金'
+            ? `¥${fundHoldingCostAmount(h).toFixed(2)}`
+            : `${h.shares}${h.unit || '股'}`;
+        const profitText = `${h.profit >= 0 ? '+' : ''}${h.profit.toFixed(2)}`;
+        return `<tr>
+            <td><input class="import-preview-check" type="checkbox" ${row.selected ? 'checked' : ''} onchange="toggleImportPreviewSelection(${row.id}, this.checked)"></td>
+            <td><span class="holding-type-tag ${typeClass}">${type}</span></td>
+            <td style="font-family:monospace;color:var(--text-muted)">${escapeHtml(String(h.code || ''))}</td>
+            <td>${escapeHtml(String(h.name || ''))}</td>
+            <td>${holdText}</td>
+            <td class="${cls}">${profitText}</td>
+        </tr>`;
+    }).join('');
+    renderImportPreviewSummary();
+}
+
+function confirmImportPreview() {
+    const selectedItems = pendingOcrImportItems.filter(x => x.selected).map(x => x.item);
+    if (!selectedItems.length) {
+        alert('请至少勾选一条识别结果再导入。');
+        return;
+    }
+    let added = 0;
+    let updated = 0;
+    selectedItems.forEach(item => {
+        const merged = upsertHolding(item);
+        if (merged === 'added') added += 1;
+        if (merged === 'updated') updated += 1;
+    });
+    saveMockHoldings();
+    refreshPortfolioByHoldings();
+    renderHoldings();
+    const skipped = pendingOcrImportItems.length - selectedItems.length;
+    closeImportPreviewModal();
+    alert(`截图OCR导入完成：新增 ${added} 条，合并 ${updated} 条${skipped > 0 ? `，忽略 ${skipped} 条` : ''}。`);
 }
 
 function mockParseHoldingsFromScreenshot(fileName) {
@@ -1478,6 +1896,91 @@ function deleteHolding(code, assetType) {
     renderHoldings();
 }
 
+function openEditHoldingModal(code, assetType) {
+    const h = holdingsData.find(x => x.code === code && x.asset_type === assetType);
+    if (!h) return;
+    document.getElementById('editHoldingCode').value = code;
+    document.getElementById('editHoldingAssetType').value = assetType;
+    const titleEl = document.getElementById('editHoldingTitle');
+    if (titleEl) titleEl.textContent = `${h.name}（${h.code}）`;
+
+    const stockPanel = document.getElementById('editStockFields');
+    const fundPanel = document.getElementById('editFundFields');
+    if (assetType === '基金') {
+        stockPanel.classList.add('hidden');
+        fundPanel.classList.remove('hidden');
+        document.getElementById('editFundAmount').value = fundHoldingCostAmount(h);
+        document.getElementById('editFundProfit').value = h.profit;
+    } else {
+        fundPanel.classList.add('hidden');
+        stockPanel.classList.remove('hidden');
+        document.getElementById('editStockShares').value = h.shares;
+        document.getElementById('editStockCost').value = h.cost;
+        document.getElementById('editStockCurrent').value = h.current;
+    }
+    document.getElementById('editHoldingModal').classList.remove('hidden');
+}
+
+function closeEditHoldingModal() {
+    const modal = document.getElementById('editHoldingModal');
+    if (modal) modal.classList.add('hidden');
+}
+
+function submitEditHolding() {
+    const code = document.getElementById('editHoldingCode').value;
+    const assetType = document.getElementById('editHoldingAssetType').value;
+    const idx = holdingsData.findIndex(h => h.code === code && h.asset_type === assetType);
+    if (idx < 0) return;
+    const prev = holdingsData[idx];
+
+    if (assetType === '基金') {
+        const amount = Number(document.getElementById('editFundAmount').value);
+        const profit = Number(document.getElementById('editFundProfit').value);
+        if (!(amount > 0) || Number.isNaN(profit)) {
+            alert('请填写有效的持有金额与持有收益。');
+            return;
+        }
+        const currentValue = amount + profit;
+        if (currentValue <= 0) {
+            alert('持有金额 + 持有收益 必须大于 0。');
+            return;
+        }
+        const currentPrice = 1;
+        const shares = Math.max(1, Math.round(currentValue / currentPrice));
+        const costPrice = amount / shares;
+        holdingsData[idx] = normalizeHolding({
+            code: prev.code,
+            name: prev.name,
+            asset_type: '基金',
+            shares,
+            unit: '份',
+            cost: costPrice,
+            current: currentPrice
+        });
+    } else {
+        const shares = Math.round(Number(document.getElementById('editStockShares').value));
+        const cost = Number(document.getElementById('editStockCost').value);
+        const current = Number(document.getElementById('editStockCurrent').value);
+        if (!(shares > 0) || !(cost > 0) || !(current > 0)) {
+            alert('请填写有效的持仓数量、成本价与现价。');
+            return;
+        }
+        holdingsData[idx] = normalizeHolding({
+            code: prev.code,
+            name: prev.name,
+            asset_type: '股票',
+            shares,
+            unit: prev.unit || '股',
+            cost,
+            current
+        });
+    }
+    saveMockHoldings();
+    refreshPortfolioByHoldings();
+    renderHoldings();
+    closeEditHoldingModal();
+}
+
 function renderRiskMetrics(metrics) {
     const items = [
         { label: '夏普比率', value: metrics.sharpe_ratio, color: '#10b981' },
@@ -1562,7 +2065,10 @@ async function sendChat() {
         const res = await fetch('/api/chat', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ message: message })
+            body: JSON.stringify({
+                message: message,
+                holdings: Array.isArray(holdingsData) ? holdingsData : []
+            })
         });
         const data = await res.json();
 

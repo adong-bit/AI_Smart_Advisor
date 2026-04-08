@@ -615,17 +615,41 @@ body {
     background: rgba(239, 68, 68, 0.18);
 }
 
-/* 持仓表“操作”列固定在右侧，基金/股票都可直接看到删除按钮 */
-#holdingsTable th:last-child,
-#holdingsTable td:last-child {
-    position: sticky;
-    right: 0;
-    z-index: 2;
-    background: var(--bg-card);
+.table-action-btn {
+    padding: 4px 8px;
+    border-radius: 6px;
+    border: 1px solid var(--border-light);
+    background: transparent;
+    color: var(--accent-light);
+    font-size: 12px;
+    cursor: pointer;
 }
 
-#holdingsTable th:last-child {
-    z-index: 3;
+.table-action-btn:hover {
+    border-color: var(--accent);
+    background: rgba(59, 130, 246, 0.08);
+}
+
+.holdings-op-cell {
+    white-space: nowrap;
+    text-align: center;
+    min-width: 170px;
+    width: 170px;
+}
+
+.holdings-op-group {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    white-space: nowrap;
+    justify-content: center;
+    width: 100%;
+}
+
+.holdings-op-head {
+    text-align: center !important;
+    width: 170px;
+    min-width: 170px;
 }
 
 .modal {
@@ -718,6 +742,25 @@ body {
     justify-content: flex-end;
     gap: 10px;
     padding: 0 20px 18px;
+}
+
+.import-preview-panel {
+    width: min(980px, calc(100vw - 40px));
+}
+
+.import-preview-table-wrap {
+    margin-top: 10px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    max-height: 360px;
+    overflow: auto;
+}
+
+.import-preview-check {
+    width: 15px;
+    height: 15px;
+    accent-color: var(--accent);
+    cursor: pointer;
 }
 
 .sentiment-hint {

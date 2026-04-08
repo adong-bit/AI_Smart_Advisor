@@ -5,44 +5,579 @@
 INFO:werkzeug:[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
  * Running on http://127.0.0.1:5008
 INFO:werkzeug:[33mPress CTRL+C to quit[0m
-INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 00:26:12] "GET /api/portfolio HTTP/1.1" 200 -
-INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 00:26:17] "GET / HTTP/1.1" 200 -
-INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 00:26:18] "GET /static/css/style.css?v=1775579177 HTTP/1.1" 200 -
-INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 00:26:18] "GET /static/js/main.js?v=1775579177 HTTP/1.1" 200 -
+Please wait for a moment:   0%|          | 0/69 [00:00<?, ?it/s]Please wait for a moment:   1%|▏         | 1/69 [00:04<04:45,  4.19s/it]INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:20:16] "GET /api/stock-search?q=平安&limit=12 HTTP/1.1" 200 -
+Please wait for a moment:   3%|▎         | 2/69 [00:08<04:58,  4.45s/it]
+Please wait for a moment:   0%|          | 0/69 [00:00<?, ?it/s][AINFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:20:26] "GET /api/stock-search?q=比亚迪&limit=12 HTTP/1.1" 200 -
+
+
+Please wait for a moment:   0%|          | 0/69 [00:00<?, ?it/s][A[APlease wait for a moment:   4%|▍         | 3/69 [00:15<06:00,  5.47s/it]
+Please wait for a moment:   1%|▏         | 1/69 [00:06<07:11,  6.34s/it][AINFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:20:32] "GET /api/stock-search?q=平安&limit=12 HTTP/1.1" 200 -
+Please wait for a moment:   6%|▌         | 4/69 [00:21<06:10,  5.70s/it]
+
+Please wait for a moment:   1%|▏         | 1/69 [00:06<07:26,  6.56s/it][A[A
+Please wait for a moment:   3%|▎         | 2/69 [00:14<08:13,  7.37s/it][AINFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:20:38] "GET / HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:20:39] "GET /static/js/main.js?v=1775661638 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:20:39] "GET /static/css/style.css?v=1775661638 HTTP/1.1" 200 -
 INFO:market_data_akshare:efinance 数据获取完成: A股=5, 港美=0, 债商=0
-INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 00:26:21] "GET /api/market HTTP/1.1" 200 -
-INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 00:26:23] "GET /api/portfolio HTTP/1.1" 200 -
-INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 00:26:38] "GET / HTTP/1.1" 200 -
-INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 00:26:38] "GET /static/css/style.css?v=1775579198 HTTP/1.1" 200 -
-INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 00:26:38] "GET /static/js/main.js?v=1775579198 HTTP/1.1" 200 -
+Please wait for a moment:   7%|▋         | 5/69 [00:29<06:55,  6.49s/it]
+
+Please wait for a moment:   3%|▎         | 2/69 [00:14<08:15,  7.40s/it][A[A
+Please wait for a moment:   4%|▍         | 3/69 [00:21<07:52,  7.15s/it][APlease wait for a moment:   9%|▊         | 6/69 [00:34<06:27,  6.15s/it]
+
+Please wait for a moment:   4%|▍         | 3/69 [00:20<07:12,  6.55s/it][A[A
+Please wait for a moment:   6%|▌         | 4/69 [00:26<06:52,  6.35s/it][A
+
+
+  0%|          | 0/16 [00:00<?, ?it/s][A[A[APlease wait for a moment:  10%|█         | 7/69 [00:38<05:35,  5.41s/it]
+
+Please wait for a moment:   6%|▌         | 4/69 [00:24<06:00,  5.54s/it][A[A
+
+
+  6%|▋         | 1/16 [00:01<00:13,  1.09it/s][A[A[A
+Please wait for a moment:   7%|▋         | 5/69 [00:30<05:46,  5.41s/it][A
+
+
+ 12%|█▎        | 2/16 [00:02<00:14,  1.06s/it][A[A[A
+
+
+ 19%|█▉        | 3/16 [00:03<00:16,  1.30s/it][A[A[APlease wait for a moment:  12%|█▏        | 8/69 [00:42<04:59,  4.91s/it]
+
+Please wait for a moment:   7%|▋         | 5/69 [00:27<05:04,  4.76s/it][A[A
+Please wait for a moment:   9%|▊         | 6/69 [00:34<05:07,  4.88s/it][A
+
+
+ 25%|██▌       | 4/16 [00:05<00:15,  1.32s/it][A[A[APlease wait for a moment:  13%|█▎        | 9/69 [00:45<04:12,  4.22s/it]
+
+
+ 31%|███▏      | 5/16 [00:06<00:15,  1.39s/it][A[A[A
+
+Please wait for a moment:   9%|▊         | 6/69 [00:30<04:18,  4.11s/it][A[A
+Please wait for a moment:  10%|█         | 7/69 [00:36<04:07,  3.99s/it][A
+
+
+
+  0%|          | 0/16 [00:00<?, ?it/s][A[A[A[A
+
+
+ 38%|███▊      | 6/16 [00:07<00:12,  1.20s/it][A[A[A
+
+
+
+  6%|▋         | 1/16 [00:01<00:16,  1.11s/it][A[A[A[APlease wait for a moment:  14%|█▍        | 10/69 [00:47<03:29,  3.55s/it]
+
+
+ 44%|████▍     | 7/16 [00:08<00:10,  1.21s/it][A[A[A
+
+Please wait for a moment:  10%|█         | 7/69 [00:32<03:37,  3.51s/it][A[A
+Please wait for a moment:  12%|█▏        | 8/69 [00:38<03:25,  3.37s/it][A
+
+
+
+ 12%|█▎        | 2/16 [00:02<00:13,  1.01it/s][A[A[A[A
+
+
+ 50%|█████     | 8/16 [00:09<00:08,  1.11s/it][A[A[A
+
+
+
+
+  0%|          | 0/16 [00:00<?, ?it/s][A[A[A[A[AINFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:21:00] "GET /api/market HTTP/1.1" 200 -
+
+
+
+
+ 19%|█▉        | 3/16 [00:02<00:12,  1.06it/s][A[A[A[APlease wait for a moment:  16%|█▌        | 11/69 [00:49<02:53,  2.99s/it]
+
+
+ 56%|█████▋    | 9/16 [00:10<00:07,  1.12s/it][A[A[A
+
+
+
+
+  6%|▋         | 1/16 [00:01<00:16,  1.07s/it][A[A[A[A[A
+
+
+
+ 25%|██▌       | 4/16 [00:03<00:10,  1.09it/s][A[A[A[A
+
+
+ 62%|██████▎   | 10/16 [00:11<00:06,  1.03s/it][A[A[A
+Please wait for a moment:  13%|█▎        | 9/69 [00:40<03:02,  3.04s/it][A
+
+
+
+
+ 12%|█▎        | 2/16 [00:02<00:14,  1.06s/it][A[A[A[A[A
+
+
+
+ 31%|███▏      | 5/16 [00:04<00:09,  1.14it/s][A[A[A[A
+
+Please wait for a moment:  12%|█▏        | 8/69 [00:35<03:21,  3.31s/it][A[APlease wait for a moment:  17%|█▋        | 12/69 [00:50<02:29,  2.63s/it]
+
+
+ 69%|██████▉   | 11/16 [00:12<00:04,  1.08it/s][A[A[A
+
+
+
+
+ 19%|█▉        | 3/16 [00:02<00:10,  1.22it/s][A[A[A[A[A
+
+
+
+ 38%|███▊      | 6/16 [00:05<00:07,  1.32it/s][A[A[A[A
+
+
+ 75%|███████▌  | 12/16 [00:12<00:03,  1.15it/s][A[A[A
+
+
+
+
+ 25%|██▌       | 4/16 [00:03<00:09,  1.24it/s][A[A[A[A[A
+
+Please wait for a moment:  13%|█▎        | 9/69 [00:36<02:39,  2.66s/it][A[A
+
+
+
+ 44%|████▍     | 7/16 [00:05<00:06,  1.29it/s][A[A[A[A
+Please wait for a moment:  14%|█▍        | 10/69 [00:42<02:41,  2.73s/it][APlease wait for a moment:  19%|█▉        | 13/69 [00:52<02:09,  2.32s/it]
+
+
+
+
+ 31%|███▏      | 5/16 [00:04<00:08,  1.28it/s][A[A[A[A[A
+
+
+ 81%|████████▏ | 13/16 [00:13<00:02,  1.15it/s][A[A[A
+
+
+
+ 50%|█████     | 8/16 [00:06<00:06,  1.32it/s][A[A[A[A
+
+Please wait for a moment:  14%|█▍        | 10/69 [00:37<02:07,  2.16s/it][A[A
+
+
+
+
+ 38%|███▊      | 6/16 [00:04<00:06,  1.54it/s][A[A[A[A[A
+
+
+
+ 56%|█████▋    | 9/16 [00:07<00:04,  1.55it/s][A[A[A[A
+
+
+ 88%|████████▊ | 14/16 [00:14<00:01,  1.28it/s][A[A[A
+
+
+
+
+ 44%|████▍     | 7/16 [00:05<00:05,  1.59it/s][A[A[A[A[A
+
+
+
+ 62%|██████▎   | 10/16 [00:08<00:04,  1.35it/s][A[A[A[A
+
+
+ 94%|█████████▍| 15/16 [00:15<00:00,  1.15it/s][A[A[A
+
+
+
+
+ 50%|█████     | 8/16 [00:06<00:05,  1.44it/s][A[A[A[A[A
+Please wait for a moment:  16%|█▌        | 11/69 [00:44<02:30,  2.59s/it][A
+
+
+
+ 69%|██████▉   | 11/16 [00:08<00:03,  1.29it/s][A[A[A[A
+
+Please wait for a moment:  16%|█▌        | 11/69 [00:39<02:03,  2.12s/it][A[A
+
+
+100%|██████████| 16/16 [00:16<00:00,  1.14it/s][A[A[A
+
+
+                                               [A[A[A
+
+
+
+
+ 56%|█████▋    | 9/16 [00:06<00:05,  1.37it/s][A[A[A[A[APlease wait for a moment:  20%|██        | 14/69 [00:55<02:16,  2.47s/it]
+
+
+
+ 75%|███████▌  | 12/16 [00:09<00:03,  1.26it/s][A[A[A[A
+
+
+
+
+ 62%|██████▎   | 10/16 [00:07<00:04,  1.32it/s][A[A[A[A[A
+
+
+
+ 81%|████████▏ | 13/16 [00:10<00:02,  1.22it/s][A[A[A[A
+Please wait for a moment:  17%|█▋        | 12/69 [00:46<02:19,  2.44s/it][A
+
+Please wait for a moment:  17%|█▋        | 12/69 [00:41<01:57,  2.06s/it][A[A
+
+
+
+
+ 69%|██████▉   | 11/16 [00:08<00:04,  1.25it/s][A[A[A[A[A
+
+
+
+ 88%|████████▊ | 14/16 [00:11<00:01,  1.27it/s][A[A[A[APlease wait for a moment:  22%|██▏       | 15/69 [00:57<02:08,  2.38s/it]
+
+
+
+ 94%|█████████▍| 15/16 [00:12<00:00,  1.29it/s][A[A[A[A
+
+
+
+
+ 75%|███████▌  | 12/16 [00:09<00:03,  1.04it/s][A[A[A[A[A
+Please wait for a moment:  19%|█▉        | 13/69 [00:48<02:02,  2.18s/it][A
+
+Please wait for a moment:  19%|█▉        | 13/69 [00:43<01:46,  1.89s/it][A[A
+
+
+
+100%|██████████| 16/16 [00:12<00:00,  1.28it/s][A[A[A[APlease wait for a moment:  23%|██▎       | 16/69 [00:59<01:51,  2.10s/it]
+
+
+
+                                               [A[A[A[A
+
+
+
+
+ 81%|████████▏ | 13/16 [00:10<00:02,  1.12it/s][A[A[A[A[A
+Please wait for a moment:  20%|██        | 14/69 [00:50<01:51,  2.03s/it][A
+
+Please wait for a moment:  20%|██        | 14/69 [00:44<01:39,  1.81s/it][A[APlease wait for a moment:  25%|██▍       | 17/69 [01:00<01:36,  1.85s/it]
+
+
+
+
+ 88%|████████▊ | 14/16 [00:12<00:02,  1.13s/it][A[A[A[A[A
+
+
+
+
+ 94%|█████████▍| 15/16 [00:13<00:01,  1.04s/it][A[A[A[A[A
+Please wait for a moment:  22%|██▏       | 15/69 [00:51<01:41,  1.87s/it][A
+
+Please wait for a moment:  22%|██▏       | 15/69 [00:46<01:32,  1.72s/it][A[APlease wait for a moment:  26%|██▌       | 18/69 [01:01<01:27,  1.72s/it]
+
+
+
+
+100%|██████████| 16/16 [00:13<00:00,  1.14it/s][A[A[A[A[A
+
+
+
+
+                                               [A[A[A[A[A
+Please wait for a moment:  23%|██▎       | 16/69 [00:53<01:31,  1.73s/it][A
+
+Please wait for a moment:  23%|██▎       | 16/69 [00:47<01:26,  1.63s/it][A[APlease wait for a moment:  28%|██▊       | 19/69 [01:03<01:20,  1.60s/it]
+Please wait for a moment:  25%|██▍       | 17/69 [00:54<01:23,  1.61s/it][A
+
+Please wait for a moment:  25%|██▍       | 17/69 [00:49<01:19,  1.53s/it][A[APlease wait for a moment:  29%|██▉       | 20/69 [01:04<01:14,  1.52s/it]
+
+Please wait for a moment:  26%|██▌       | 18/69 [00:50<01:14,  1.47s/it][A[APlease wait for a moment:  30%|███       | 21/69 [01:05<01:10,  1.46s/it]
+Please wait for a moment:  26%|██▌       | 18/69 [00:55<01:19,  1.56s/it][A
+Please wait for a moment:  28%|██▊       | 19/69 [00:57<01:12,  1.45s/it][A
+
+Please wait for a moment:  28%|██▊       | 19/69 [00:51<01:11,  1.44s/it][A[APlease wait for a moment:  32%|███▏      | 22/69 [01:07<01:06,  1.43s/it]
+Please wait for a moment:  29%|██▉       | 20/69 [00:58<01:07,  1.38s/it][A
+
+Please wait for a moment:  29%|██▉       | 20/69 [00:52<01:07,  1.38s/it][A[APlease wait for a moment:  33%|███▎      | 23/69 [01:08<01:03,  1.37s/it]
+Please wait for a moment:  30%|███       | 21/69 [00:59<01:04,  1.33s/it][A
+
+Please wait for a moment:  30%|███       | 21/69 [00:54<01:03,  1.32s/it][A[APlease wait for a moment:  35%|███▍      | 24/69 [01:09<00:59,  1.32s/it]
+Please wait for a moment:  32%|███▏      | 22/69 [01:00<01:00,  1.30s/it][A
+
+Please wait for a moment:  32%|███▏      | 22/69 [00:55<01:00,  1.29s/it][A[APlease wait for a moment:  36%|███▌      | 25/69 [01:10<00:56,  1.28s/it]Please wait for a moment:  38%|███▊      | 26/69 [01:11<00:45,  1.05s/it]
+Please wait for a moment:  33%|███▎      | 23/69 [01:02<01:04,  1.41s/it][A
+
+Please wait for a moment:  33%|███▎      | 23/69 [00:56<01:03,  1.38s/it][A[APlease wait for a moment:  39%|███▉      | 27/69 [01:12<00:46,  1.10s/it]Please wait for a moment:  41%|████      | 28/69 [01:13<00:39,  1.04it/s]
+
+Please wait for a moment:  35%|███▍      | 24/69 [00:58<01:02,  1.38s/it][A[APlease wait for a moment:  42%|████▏     | 29/69 [01:14<00:40,  1.00s/it]
+Please wait for a moment:  35%|███▍      | 24/69 [01:04<01:10,  1.56s/it][A
+Please wait for a moment:  36%|███▌      | 25/69 [01:05<01:04,  1.47s/it][A
+
+Please wait for a moment:  36%|███▌      | 25/69 [01:00<01:05,  1.50s/it][A[APlease wait for a moment:  43%|████▎     | 30/69 [01:15<00:44,  1.14s/it]
+Please wait for a moment:  38%|███▊      | 26/69 [01:06<00:59,  1.39s/it][APlease wait for a moment:  45%|████▍     | 31/69 [01:17<00:53,  1.41s/it]
+
+Please wait for a moment:  38%|███▊      | 26/69 [01:02<01:14,  1.73s/it][A[A
+Please wait for a moment:  39%|███▉      | 27/69 [01:08<00:58,  1.39s/it][A
+
+Please wait for a moment:  39%|███▉      | 27/69 [01:02<00:58,  1.39s/it][A[APlease wait for a moment:  46%|████▋     | 32/69 [01:18<00:49,  1.34s/it]
+Please wait for a moment:  41%|████      | 28/69 [01:09<00:53,  1.30s/it][APlease wait for a moment:  48%|████▊     | 33/69 [01:19<00:43,  1.20s/it]
+
+Please wait for a moment:  41%|████      | 28/69 [01:04<01:00,  1.48s/it][A[A
+Please wait for a moment:  42%|████▏     | 29/69 [01:10<00:51,  1.29s/it][A
+
+Please wait for a moment:  42%|████▏     | 29/69 [01:05<00:55,  1.38s/it][A[APlease wait for a moment:  49%|████▉     | 34/69 [01:21<00:46,  1.33s/it]
+Please wait for a moment:  43%|████▎     | 30/69 [01:11<00:49,  1.26s/it][A
+
+Please wait for a moment:  43%|████▎     | 30/69 [01:06<00:47,  1.22s/it][A[A
+Please wait for a moment:  45%|████▍     | 31/69 [01:12<00:46,  1.22s/it][APlease wait for a moment:  51%|█████     | 35/69 [01:22<00:47,  1.39s/it]
+
+Please wait for a moment:  45%|████▍     | 31/69 [01:07<00:44,  1.18s/it][A[A
+Please wait for a moment:  46%|████▋     | 32/69 [01:14<00:46,  1.25s/it][APlease wait for a moment:  52%|█████▏    | 36/69 [01:24<00:45,  1.39s/it]
+
+Please wait for a moment:  46%|████▋     | 32/69 [01:09<00:46,  1.25s/it][A[A
+Please wait for a moment:  48%|████▊     | 33/69 [01:15<00:44,  1.24s/it][APlease wait for a moment:  54%|█████▎    | 37/69 [01:25<00:43,  1.36s/it]
+
+Please wait for a moment:  48%|████▊     | 33/69 [01:10<00:44,  1.24s/it][A[A
+Please wait for a moment:  49%|████▉     | 34/69 [01:16<00:41,  1.18s/it][APlease wait for a moment:  55%|█████▌    | 38/69 [01:26<00:41,  1.33s/it]
+
+Please wait for a moment:  49%|████▉     | 34/69 [01:11<00:43,  1.24s/it][A[A
+Please wait for a moment:  51%|█████     | 35/69 [01:17<00:43,  1.27s/it][APlease wait for a moment:  57%|█████▋    | 39/69 [01:28<00:41,  1.38s/it]
+
+Please wait for a moment:  51%|█████     | 35/69 [01:13<00:43,  1.29s/it][A[A
+Please wait for a moment:  52%|█████▏    | 36/69 [01:19<00:40,  1.22s/it][A
+
+Please wait for a moment:  52%|█████▏    | 36/69 [01:14<00:43,  1.31s/it][A[APlease wait for a moment:  58%|█████▊    | 40/69 [01:29<00:41,  1.41s/it]
+Please wait for a moment:  54%|█████▎    | 37/69 [01:20<00:40,  1.25s/it][A
+
+Please wait for a moment:  54%|█████▎    | 37/69 [01:15<00:38,  1.21s/it][A[A
+Please wait for a moment:  55%|█████▌    | 38/69 [01:21<00:34,  1.11s/it][A
+Please wait for a moment:  57%|█████▋    | 39/69 [01:21<00:30,  1.02s/it][A
+
+Please wait for a moment:  55%|█████▌    | 38/69 [01:16<00:40,  1.31s/it][A[APlease wait for a moment:  59%|█████▉    | 41/69 [01:32<00:49,  1.76s/it]
+Please wait for a moment:  58%|█████▊    | 40/69 [01:23<00:35,  1.22s/it][A
+
+Please wait for a moment:  57%|█████▋    | 39/69 [01:18<00:42,  1.40s/it][A[APlease wait for a moment:  61%|██████    | 42/69 [01:33<00:45,  1.68s/it]
+Please wait for a moment:  59%|█████▉    | 41/69 [01:24<00:33,  1.20s/it][APlease wait for a moment:  62%|██████▏   | 43/69 [01:35<00:41,  1.58s/it]
+
+Please wait for a moment:  58%|█████▊    | 40/69 [01:19<00:40,  1.41s/it][A[A
+Please wait for a moment:  61%|██████    | 42/69 [01:26<00:35,  1.30s/it][A
+
+Please wait for a moment:  59%|█████▉    | 41/69 [01:20<00:35,  1.28s/it][A[APlease wait for a moment:  64%|██████▍   | 44/69 [01:37<00:42,  1.70s/it]
+
+Please wait for a moment:  61%|██████    | 42/69 [01:22<00:32,  1.22s/it][A[A
+Please wait for a moment:  62%|██████▏   | 43/69 [01:27<00:34,  1.31s/it][A
+
+Please wait for a moment:  62%|██████▏   | 43/69 [01:22<00:28,  1.11s/it][A[APlease wait for a moment:  65%|██████▌   | 45/69 [01:38<00:38,  1.61s/it]
+Please wait for a moment:  64%|██████▍   | 44/69 [01:28<00:32,  1.28s/it][A
+
+Please wait for a moment:  64%|██████▍   | 44/69 [01:23<00:25,  1.03s/it][A[A
+Please wait for a moment:  65%|██████▌   | 45/69 [01:29<00:26,  1.12s/it][A
+
+Please wait for a moment:  65%|██████▌   | 45/69 [01:24<00:25,  1.05s/it][A[APlease wait for a moment:  67%|██████▋   | 46/69 [01:40<00:37,  1.62s/it]
+Please wait for a moment:  67%|██████▋   | 46/69 [01:30<00:24,  1.08s/it][A
+
+Please wait for a moment:  67%|██████▋   | 46/69 [01:25<00:21,  1.09it/s][A[APlease wait for a moment:  68%|██████▊   | 47/69 [01:41<00:33,  1.52s/it]
+
+Please wait for a moment:  68%|██████▊   | 47/69 [01:26<00:21,  1.02it/s][A[A
+Please wait for a moment:  68%|██████▊   | 47/69 [01:32<00:26,  1.22s/it][APlease wait for a moment:  70%|██████▉   | 48/69 [01:42<00:28,  1.37s/it]
+
+Please wait for a moment:  70%|██████▉   | 48/69 [01:27<00:21,  1.02s/it][A[A
+Please wait for a moment:  70%|██████▉   | 48/69 [01:33<00:25,  1.20s/it][APlease wait for a moment:  71%|███████   | 49/69 [01:43<00:24,  1.21s/it]
+
+Please wait for a moment:  71%|███████   | 49/69 [01:29<00:23,  1.17s/it][A[APlease wait for a moment:  72%|███████▏  | 50/69 [01:44<00:23,  1.26s/it]
+Please wait for a moment:  71%|███████   | 49/69 [01:35<00:27,  1.38s/it][A
+
+Please wait for a moment:  72%|███████▏  | 50/69 [01:30<00:21,  1.15s/it][A[APlease wait for a moment:  74%|███████▍  | 51/69 [01:45<00:22,  1.27s/it]
+Please wait for a moment:  72%|███████▏  | 50/69 [01:36<00:24,  1.30s/it][A
+
+Please wait for a moment:  74%|███████▍  | 51/69 [01:31<00:18,  1.06s/it][A[A
+Please wait for a moment:  74%|███████▍  | 51/69 [01:37<00:25,  1.39s/it][APlease wait for a moment:  75%|███████▌  | 52/69 [01:48<00:26,  1.56s/it]
+
+Please wait for a moment:  75%|███████▌  | 52/69 [01:33<00:22,  1.34s/it][A[A
+Please wait for a moment:  75%|███████▌  | 52/69 [01:39<00:25,  1.52s/it][APlease wait for a moment:  77%|███████▋  | 53/69 [01:49<00:25,  1.57s/it]
+
+Please wait for a moment:  77%|███████▋  | 53/69 [01:34<00:23,  1.44s/it][A[A
+Please wait for a moment:  77%|███████▋  | 53/69 [01:41<00:26,  1.68s/it][APlease wait for a moment:  78%|███████▊  | 54/69 [01:51<00:25,  1.69s/it]
+
+Please wait for a moment:  78%|███████▊  | 54/69 [01:36<00:23,  1.59s/it][A[A
+Please wait for a moment:  78%|███████▊  | 54/69 [01:43<00:26,  1.79s/it][APlease wait for a moment:  80%|███████▉  | 55/69 [01:53<00:24,  1.76s/it]
+
+Please wait for a moment:  80%|███████▉  | 55/69 [01:38<00:24,  1.76s/it][A[A
+Please wait for a moment:  80%|███████▉  | 55/69 [01:45<00:24,  1.73s/it][APlease wait for a moment:  81%|████████  | 56/69 [01:55<00:22,  1.71s/it]
+
+Please wait for a moment:  81%|████████  | 56/69 [01:40<00:21,  1.66s/it][A[A
+Please wait for a moment:  81%|████████  | 56/69 [01:46<00:20,  1.61s/it][APlease wait for a moment:  83%|████████▎ | 57/69 [01:56<00:19,  1.60s/it]
+
+Please wait for a moment:  83%|████████▎ | 57/69 [01:41<00:19,  1.60s/it][A[A
+Please wait for a moment:  83%|████████▎ | 57/69 [01:48<00:18,  1.54s/it][APlease wait for a moment:  84%|████████▍ | 58/69 [01:58<00:17,  1.55s/it]
+
+Please wait for a moment:  84%|████████▍ | 58/69 [01:43<00:17,  1.55s/it][A[A
+Please wait for a moment:  84%|████████▍ | 58/69 [01:49<00:16,  1.48s/it][APlease wait for a moment:  86%|████████▌ | 59/69 [01:59<00:14,  1.49s/it]
+
+Please wait for a moment:  86%|████████▌ | 59/69 [01:44<00:14,  1.50s/it][A[A
+Please wait for a moment:  86%|████████▌ | 59/69 [01:51<00:15,  1.56s/it][APlease wait for a moment:  87%|████████▋ | 60/69 [02:01<00:14,  1.61s/it]
+
+Please wait for a moment:  87%|████████▋ | 60/69 [01:47<00:17,  1.90s/it][A[A
+Please wait for a moment:  87%|████████▋ | 60/69 [01:53<00:17,  1.91s/it][APlease wait for a moment:  88%|████████▊ | 61/69 [02:04<00:15,  1.97s/it]
+
+Please wait for a moment:  88%|████████▊ | 61/69 [01:50<00:17,  2.17s/it][A[A
+Please wait for a moment:  88%|████████▊ | 61/69 [01:56<00:16,  2.12s/it][APlease wait for a moment:  90%|████████▉ | 62/69 [02:06<00:14,  2.09s/it]INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:22:18] "GET /api/fund-search?q=动画饭&limit=12 HTTP/1.1" 200 -
+
+
+Please wait for a moment:  90%|████████▉ | 62/69 [01:52<00:15,  2.19s/it][A[A
+Please wait for a moment:  90%|████████▉ | 62/69 [01:58<00:15,  2.22s/it][APlease wait for a moment:  91%|█████████▏| 63/69 [02:08<00:12,  2.13s/it]INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:22:21] "GET /api/fund-search?q=东方&limit=12 HTTP/1.1" 200 -
+
+
+Please wait for a moment:  91%|█████████▏| 63/69 [01:54<00:12,  2.12s/it][A[A
+Please wait for a moment:  91%|█████████▏| 63/69 [02:01<00:13,  2.23s/it][APlease wait for a moment:  93%|█████████▎| 64/69 [02:11<00:11,  2.27s/it]
+
+Please wait for a moment:  93%|█████████▎| 64/69 [01:57<00:11,  2.28s/it][A[APlease wait for a moment:  94%|█████████▍| 65/69 [02:15<00:11,  2.76s/it]INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:22:27] "GET /api/portfolio HTTP/1.1" 200 -
+
+Please wait for a moment:  93%|█████████▎| 64/69 [02:05<00:14,  2.89s/it][A
+
+Please wait for a moment:  94%|█████████▍| 65/69 [02:01<00:12,  3.07s/it][A[AINFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:22:30] "GET /api/hs300-return?days=180 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:22:31] "GET /api/portfolio HTTP/1.1" 200 -
+
+Please wait for a moment:  94%|█████████▍| 65/69 [02:10<00:14,  3.59s/it][APlease wait for a moment:  96%|█████████▌| 66/69 [02:20<00:10,  3.65s/it]
+
+Please wait for a moment:  96%|█████████▌| 66/69 [02:07<00:11,  3.75s/it][A[A
+Please wait for a moment:  96%|█████████▌| 66/69 [02:17<00:13,  4.53s/it][AINFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:22:40] "POST /api/stock-screen HTTP/1.1" 200 -
+Please wait for a moment:  97%|█████████▋| 67/69 [02:30<00:10,  5.34s/it]
+
+Please wait for a moment:  97%|█████████▋| 67/69 [02:16<00:10,  5.48s/it][A[AINFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:22:45] "GET /api/stock-search?q=平安银行&limit=12 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:22:51] "GET /api/stock-search?q=放工&limit=12 HTTP/1.1" 200 -
+
+Please wait for a moment:  97%|█████████▋| 67/69 [02:29<00:13,  6.73s/it][APlease wait for a moment:  99%|█████████▊| 68/69 [02:42<00:07,  7.43s/it]
+
+Please wait for a moment:  99%|█████████▊| 68/69 [02:29<00:07,  7.61s/it][A[AINFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:22:57] "GET /api/stock-search?q=平安&limit=12 HTTP/1.1" 200 -
 INFO:market_data_akshare:efinance 数据获取完成: A股=5, 港美=0, 债商=0
-INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 00:26:41] "GET /api/market HTTP/1.1" 200 -
-Please wait for a moment:   0%|          | 0/69 [00:00<?, ?it/s]Please wait for a moment:   1%|▏         | 1/69 [00:00<00:44,  1.51it/s]INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 00:26:43] "GET /api/portfolio HTTP/1.1" 200 -
-Please wait for a moment:   3%|▎         | 2/69 [00:01<00:37,  1.79it/s]Please wait for a moment:   4%|▍         | 3/69 [00:01<00:29,  2.20it/s]Please wait for a moment:   6%|▌         | 4/69 [00:01<00:26,  2.50it/s]Please wait for a moment:   7%|▋         | 5/69 [00:02<00:23,  2.73it/s]Please wait for a moment:   9%|▊         | 6/69 [00:02<00:22,  2.86it/s]Please wait for a moment:  10%|█         | 7/69 [00:02<00:20,  2.99it/s]Please wait for a moment:  12%|█▏        | 8/69 [00:03<00:19,  3.06it/s]Please wait for a moment:  13%|█▎        | 9/69 [00:03<00:19,  3.12it/s]Please wait for a moment:  14%|█▍        | 10/69 [00:03<00:19,  3.00it/s]Please wait for a moment:  16%|█▌        | 11/69 [00:04<00:18,  3.06it/s]Please wait for a moment:  17%|█▋        | 12/69 [00:04<00:23,  2.43it/s]Please wait for a moment:  19%|█▉        | 13/69 [00:05<00:26,  2.12it/s]Please wait for a moment:  20%|██        | 14/69 [00:05<00:22,  2.40it/s]Please wait for a moment:  22%|██▏       | 15/69 [00:05<00:20,  2.58it/s]Please wait for a moment:  23%|██▎       | 16/69 [00:06<00:19,  2.73it/s]Please wait for a moment:  25%|██▍       | 17/69 [00:06<00:18,  2.81it/s]Please wait for a moment:  26%|██▌       | 18/69 [00:06<00:17,  2.90it/s]Please wait for a moment:  28%|██▊       | 19/69 [00:07<00:16,  3.00it/s]Please wait for a moment:  29%|██▉       | 20/69 [00:07<00:16,  2.90it/s]Please wait for a moment:  30%|███       | 21/69 [00:07<00:16,  2.84it/s]Please wait for a moment:  32%|███▏      | 22/69 [00:08<00:16,  2.89it/s]Please wait for a moment:  33%|███▎      | 23/69 [00:08<00:15,  2.92it/s]Please wait for a moment:  35%|███▍      | 24/69 [00:09<00:19,  2.27it/s]Please wait for a moment:  36%|███▌      | 25/69 [00:09<00:18,  2.37it/s]Please wait for a moment:  38%|███▊      | 26/69 [00:10<00:22,  1.94it/s]Please wait for a moment:  39%|███▉      | 27/69 [00:10<00:19,  2.19it/s]Please wait for a moment:  41%|████      | 28/69 [00:10<00:17,  2.40it/s]Please wait for a moment:  42%|████▏     | 29/69 [00:11<00:15,  2.55it/s]Please wait for a moment:  43%|████▎     | 30/69 [00:11<00:14,  2.72it/s]Please wait for a moment:  45%|████▍     | 31/69 [00:11<00:13,  2.81it/s]Please wait for a moment:  46%|████▋     | 32/69 [00:12<00:13,  2.83it/s]Please wait for a moment:  48%|████▊     | 33/69 [00:12<00:16,  2.22it/s]Please wait for a moment:  49%|████▉     | 34/69 [00:13<00:18,  1.94it/s]Please wait for a moment:  51%|█████     | 35/69 [00:13<00:15,  2.17it/s]Please wait for a moment:  52%|█████▏    | 36/69 [00:14<00:19,  1.72it/s]Please wait for a moment:  54%|█████▎    | 37/69 [00:15<00:19,  1.64it/s]Please wait for a moment:  55%|█████▌    | 38/69 [00:16<00:20,  1.53it/s]Please wait for a moment:  57%|█████▋    | 39/69 [00:16<00:16,  1.79it/s]Please wait for a moment:  58%|█████▊    | 40/69 [00:16<00:14,  2.03it/s]Please wait for a moment:  59%|█████▉    | 41/69 [00:17<00:12,  2.27it/s]Please wait for a moment:  61%|██████    | 42/69 [00:17<00:11,  2.42it/s]Please wait for a moment:  62%|██████▏   | 43/69 [00:17<00:10,  2.56it/s]Please wait for a moment:  64%|██████▍   | 44/69 [00:18<00:09,  2.66it/s]Please wait for a moment:  65%|██████▌   | 45/69 [00:18<00:08,  2.70it/s]Please wait for a moment:  67%|██████▋   | 46/69 [00:19<00:10,  2.29it/s]Please wait for a moment:  68%|██████▊   | 47/69 [00:19<00:08,  2.47it/s]Please wait for a moment:  70%|██████▉   | 48/69 [00:19<00:08,  2.59it/s]Please wait for a moment:  71%|███████   | 49/69 [00:20<00:10,  1.90it/s]Please wait for a moment:  72%|███████▏  | 50/69 [00:21<00:08,  2.15it/s]Please wait for a moment:  74%|███████▍  | 51/69 [00:21<00:09,  1.92it/s]Please wait for a moment:  75%|███████▌  | 52/69 [00:22<00:07,  2.17it/s]Please wait for a moment:  77%|███████▋  | 53/69 [00:22<00:06,  2.37it/s]Please wait for a moment:  78%|███████▊  | 54/69 [00:22<00:05,  2.53it/s]Please wait for a moment:  80%|███████▉  | 55/69 [00:23<00:06,  2.13it/s]Please wait for a moment:  81%|████████  | 56/69 [00:24<00:07,  1.77it/s]Please wait for a moment:  83%|████████▎ | 57/69 [00:25<00:08,  1.43it/s]Please wait for a moment:  84%|████████▍ | 58/69 [00:25<00:07,  1.54it/s]Please wait for a moment:  86%|████████▌ | 59/69 [00:26<00:07,  1.38it/s]Please wait for a moment:  87%|████████▋ | 60/69 [00:27<00:07,  1.22it/s]Please wait for a moment:  88%|████████▊ | 61/69 [00:28<00:07,  1.07it/s]Please wait for a moment:  90%|████████▉ | 62/69 [00:29<00:06,  1.10it/s]Please wait for a moment:  91%|█████████▏| 63/69 [00:31<00:07,  1.19s/it]Please wait for a moment:  93%|█████████▎| 64/69 [00:32<00:05,  1.04s/it]Please wait for a moment:  94%|█████████▍| 65/69 [00:33<00:04,  1.21s/it]Please wait for a moment:  96%|█████████▌| 66/69 [00:34<00:02,  1.06it/s]Please wait for a moment:  97%|█████████▋| 67/69 [00:34<00:01,  1.23it/s]Please wait for a moment:  99%|█████████▊| 68/69 [00:36<00:01,  1.01s/it]Please wait for a moment: 100%|██████████| 69/69 [00:37<00:00,  1.05s/it]                                                                         INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 00:27:20] "POST /api/stock-screen HTTP/1.1" 200 -
-INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 00:28:42] "GET / HTTP/1.1" 200 -
-INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 00:28:42] "GET /static/css/style.css?v=1775579322 HTTP/1.1" 200 -
-INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 00:28:42] "GET /static/js/main.js?v=1775579322 HTTP/1.1" 200 -
+Please wait for a moment: 100%|██████████| 69/69 [02:49<00:00,  7.22s/it]                                                                         
+Please wait for a moment:  99%|█████████▊| 68/69 [02:40<00:07,  7.97s/it][A
+
+Please wait for a moment: 100%|██████████| 69/69 [02:35<00:00,  7.02s/it][A[A
+
+                                                                         [A[A
+Please wait for a moment: 100%|██████████| 69/69 [02:42<00:00,  6.19s/it][A
+                                                                         [AINFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:23:10] "GET /api/market HTTP/1.1" 200 -
 INFO:market_data_akshare:efinance 数据获取完成: A股=5, 港美=0, 债商=0
-Please wait for a moment:   0%|          | 0/1 [00:00<?, ?it/s]                                                               INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 00:28:44] "POST /api/stock-screen HTTP/1.1" 200 -
-INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 00:28:46] "GET /api/market HTTP/1.1" 200 -
-INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 00:28:47] "GET /api/portfolio HTTP/1.1" 200 -
-  0%|          | 0/16 [00:00<?, ?it/s]  6%|▋         | 1/16 [00:00<00:03,  4.40it/s] 12%|█▎        | 2/16 [00:00<00:03,  4.24it/s] 19%|█▉        | 3/16 [00:00<00:03,  3.78it/s] 25%|██▌       | 4/16 [00:00<00:02,  4.17it/s]
-  0%|          | 0/16 [00:00<?, ?it/s][A 31%|███▏      | 5/16 [00:01<00:02,  4.13it/s]
-  6%|▋         | 1/16 [00:00<00:03,  4.05it/s][A 38%|███▊      | 6/16 [00:01<00:02,  3.83it/s]
- 12%|█▎        | 2/16 [00:00<00:03,  3.67it/s][A 44%|████▍     | 7/16 [00:01<00:02,  4.03it/s]
- 19%|█▉        | 3/16 [00:00<00:03,  3.66it/s][A 50%|█████     | 8/16 [00:02<00:02,  3.84it/s]
- 25%|██▌       | 4/16 [00:01<00:03,  3.67it/s][A 56%|█████▋    | 9/16 [00:02<00:01,  4.04it/s]
- 31%|███▏      | 5/16 [00:01<00:02,  3.97it/s][A 62%|██████▎   | 10/16 [00:02<00:01,  4.26it/s]
- 38%|███▊      | 6/16 [00:01<00:02,  4.08it/s][A 69%|██████▉   | 11/16 [00:02<00:01,  4.23it/s]
- 44%|████▍     | 7/16 [00:01<00:02,  3.95it/s][A 75%|███████▌  | 12/16 [00:02<00:00,  4.23it/s]
- 50%|█████     | 8/16 [00:02<00:02,  3.88it/s][A 81%|████████▏ | 13/16 [00:03<00:00,  4.16it/s]
- 56%|█████▋    | 9/16 [00:02<00:01,  3.70it/s][A 88%|████████▊ | 14/16 [00:03<00:00,  4.02it/s]
- 62%|██████▎   | 10/16 [00:02<00:01,  3.66it/s][A 94%|█████████▍| 15/16 [00:03<00:00,  4.02it/s]
- 69%|██████▉   | 11/16 [00:02<00:01,  3.75it/s][A100%|██████████| 16/16 [00:03<00:00,  4.04it/s]                                               
- 75%|███████▌  | 12/16 [00:03<00:01,  3.17it/s][A
- 81%|████████▏ | 13/16 [00:03<00:00,  3.26it/s][A
- 88%|████████▊ | 14/16 [00:03<00:00,  3.14it/s][A
- 94%|█████████▍| 15/16 [00:04<00:00,  3.28it/s][A
-100%|██████████| 16/16 [00:04<00:00,  3.20it/s][A
-                                               [AINFO:werkzeug:127.0.0.1 - - [08/Apr/2026 00:29:06] "GET /api/asset-search?q=平&limit=12 HTTP/1.1" 200 -
-INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 00:29:22] "GET /api/asset-search?q=平安&limit=12 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:28:39] "GET /api/market HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:29:26] "POST /api/stock-screen HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:29:35] "POST /api/stock-screen HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:29:39] "GET /api/portfolio HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:30:00] "GET /api/stock-search?q=中国平安&limit=12 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:30:22] "GET /api/portfolio HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:30:25] "GET /api/fund-search?q=东方&limit=12 HTTP/1.1" 200 -
+INFO:market_data_akshare:efinance 数据获取完成: A股=5, 港美=0, 债商=0
+INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:31:20] "POST /api/chat HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:31:21] "GET /api/market HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:31:26] "GET /api/fund-search?q=东方东方&limit=12 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:31:31] "GET /api/fund-search?q=东方人工&limit=12 HTTP/1.1" 200 -
+INFO:market_data_akshare:efinance 数据获取完成: A股=5, 港美=0, 债商=0
+INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:31:48] "GET /api/market HTTP/1.1" 200 -
+INFO:market_data_akshare:efinance 数据获取完成: A股=5, 港美=0, 债商=0
+INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:31:54] "GET /api/market HTTP/1.1" 200 -
+INFO:market_data_akshare:efinance 数据获取完成: A股=5, 港美=0, 债商=0
+INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:32:01] "GET /api/market HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:32:03] "GET /api/fund-search?q=东方&limit=12 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:32:04] "GET /api/fund-search?q=东方人工&limit=12 HTTP/1.1" 200 -
+INFO:market_data_akshare:efinance 数据获取完成: A股=5, 港美=0, 债商=0
+INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:32:13] "GET /api/market HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:33:48] "GET /api/risk-questions HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:34:11] "POST /api/risk-assess HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:34:31] "POST /api/stock-screen HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:34:42] "POST /api/stock-screen HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:34:43] "POST /api/stock-screen HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:34:45] "POST /api/stock-screen HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:34:48] "POST /api/stock-screen HTTP/1.1" 200 -
+INFO:market_data_akshare:efinance 数据获取完成: A股=5, 港美=0, 债商=0
+INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:35:10] "GET /api/market HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:35:15] "POST /api/stock-screen HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:35:17] "GET /api/portfolio HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:35:19] "GET /api/fund-search?q=东方人工d&limit=12 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:35:20] "GET /api/fund-search?q=东方人工d'n&limit=12 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:35:20] "GET /api/fund-search?q=东方人工d&limit=12 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:35:21] "GET /api/fund-search?q=东方人工东方&limit=12 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:35:24] "GET /api/fund-search?q=东方人工东方人工&limit=12 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:35:27] "GET /api/fund-search?q=东方人工东&limit=12 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:35:28] "GET /api/fund-search?q=东方人工&limit=12 HTTP/1.1" 200 -
+INFO:market_data_akshare:efinance 数据获取完成: A股=5, 港美=0, 债商=0
+INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:35:42] "GET /api/market HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:36:23] "POST /api/stock-screen HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:36:24] "POST /api/stock-screen HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:36:36] "GET /api/portfolio HTTP/1.1" 200 -
+INFO:market_data_akshare:efinance 数据获取完成: A股=5, 港美=0, 债商=0
+INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:37:03] "GET /api/market HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:37:44] "POST /api/stock-screen HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:37:53] "GET /api/portfolio HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:37:59] "GET /api/stock-search?q=中国平安%20(601318&limit=12 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:38:03] "GET /api/stock-search?q=中国&limit=12 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:38:03] "GET /api/stock-search?q=中国p'p&limit=12 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:38:04] "GET /api/stock-search?q=中国p&limit=12 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:38:06] "GET /api/stock-search?q=中国p'p&limit=12 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:38:07] "GET /api/stock-search?q=中国p'pin&limit=12 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:38:08] "GET /api/stock-search?q=中国p'ping&limit=12 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:38:08] "GET /api/stock-search?q=中国pping't&limit=12 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:38:09] "GET /api/stock-search?q=中国p'ping'ta&limit=12 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:38:09] "GET /api/stock-search?q=中国平台&limit=12 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:38:09] "GET /api/stock-search?q=中国&limit=12 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:38:32] "GET /api/fund-search?q=da&limit=12 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:38:33] "GET /api/fund-search?q=d&limit=12 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:38:34] "GET /api/fund-search?q=da&limit=12 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:38:35] "GET /api/fund-search?q=dong're&limit=12 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:38:36] "GET /api/fund-search?q=dong&limit=12 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:38:37] "GET /api/fund-search?q=东方&limit=12 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:38:53] "POST /api/chat HTTP/1.1" 200 -
+INFO:market_data_akshare:efinance 数据获取完成: A股=5, 港美=0, 债商=0
+INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:41:26] "GET /api/market HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:41:46] "POST /api/stock-screen HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:42:07] "GET /api/portfolio HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:42:44] "GET /api/fund-search?q=东方&limit=12 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:43:00] "POST /api/chat HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:43:57] "POST /api/stock-screen HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:44:21] "POST /api/stock-screen HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:44:24] "POST /api/stock-screen HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:44:26] "POST /api/stock-screen HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:44:29] "POST /api/stock-screen HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:44:35] "POST /api/stock-screen HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:44:37] "POST /api/stock-screen HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:44:40] "POST /api/stock-screen HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:44:43] "POST /api/stock-screen HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:44:48] "POST /api/stock-screen HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:44:51] "POST /api/stock-screen HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:44:53] "POST /api/stock-screen HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:44:55] "POST /api/stock-screen HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:44:59] "GET /api/portfolio HTTP/1.1" 200 -
+INFO:market_data_akshare:efinance 数据获取完成: A股=5, 港美=0, 债商=0
+INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:45:12] "GET /api/market HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:45:47] "POST /api/stock-screen HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:45:50] "POST /api/stock-screen HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:45:56] "POST /api/stock-screen HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:46:03] "GET /api/portfolio HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:46:14] "GET /api/stock-search?q=中国&limit=12 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:46:21] "GET /api/portfolio HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:46:25] "GET /api/fund-search?q=东方&limit=12 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:46:26] "GET /api/fund-search?q=东方人工&limit=12 HTTP/1.1" 200 -
+INFO:market_data_akshare:efinance 数据获取完成: A股=5, 港美=0, 债商=0
+INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:46:50] "GET /api/market HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:47:48] "POST /api/stock-screen HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:47:54] "GET /api/portfolio HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:48:00] "GET /api/stock-search?q=zh&limit=12 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:48:02] "GET /api/stock-search?q=zhong'g&limit=12 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:48:02] "GET /api/stock-search?q=zhong'go&limit=12 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:48:03] "GET /api/stock-search?q=中国&limit=12 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:48:15] "GET /api/fund-search?q=dong&limit=12 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:48:18] "GET /api/fund-search?q=东方&limit=12 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:48:21] "GET /api/fund-search?q=东方reng'g&limit=12 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:48:22] "GET /api/fund-search?q=东方人工&limit=12 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:48:36] "POST /api/chat HTTP/1.1" 200 -
+INFO:market_data_akshare:efinance 数据获取完成: A股=5, 港美=0, 债商=0
+INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:49:00] "GET /api/market HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:49:49] "POST /api/stock-screen HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:49:56] "GET /api/portfolio HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:50:07] "GET /api/stock-search?q=中国&limit=12 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:50:07] "GET /api/stock-search?q=中国pu'n&limit=12 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:50:08] "GET /api/stock-search?q=中国p&limit=12 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:50:09] "GET /api/stock-search?q=中国pi&limit=12 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:50:10] "GET /api/stock-search?q=中国平安&limit=12 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:50:25] "GET /api/fund-search?q=d&limit=12 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:50:25] "GET /api/fund-search?q=dong'fa&limit=12 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:50:26] "GET /api/fund-search?q=dong'fag&limit=12 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:50:26] "GET /api/fund-search?q=东方&limit=12 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:50:27] "GET /api/fund-search?q=东方re&limit=12 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:50:29] "GET /api/fund-search?q=东方ren'gong&limit=12 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:50:29] "GET /api/fund-search?q=东方人工&limit=12 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:51:21] "POST /api/chat HTTP/1.1" 200 -
