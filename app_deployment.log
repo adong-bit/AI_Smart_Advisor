@@ -1,0 +1,35 @@
+/Users/ohmygodcurry/Library/Python/3.9/lib/python/site-packages/urllib3/__init__.py:35: NotOpenSSLWarning: urllib3 v2 only supports OpenSSL 1.1.1+, currently the 'ssl' module is compiled with 'LibreSSL 2.8.3'. See: https://github.com/urllib3/urllib3/issues/3020
+  warnings.warn(
+ * Serving Flask app 'app'
+ * Debug mode: off
+INFO:werkzeug:[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5008
+INFO:werkzeug:[33mPress CTRL+C to quit[0m
+INFO:werkzeug:127.0.0.1 - - [11/Apr/2026 10:07:58] "GET / HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [11/Apr/2026 10:07:58] "GET /static/css/style.css?v=1775873278 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [11/Apr/2026 10:07:58] "GET /static/js/main.js?v=1775873278 HTTP/1.1" 200 -
+INFO:market_data_akshare:efinance 数据获取完成: A股=5, 港美=0, 债商=0
+INFO:werkzeug:127.0.0.1 - - [11/Apr/2026 10:08:03] "GET /api/market HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [11/Apr/2026 10:08:18] "GET / HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [11/Apr/2026 10:08:18] "GET /static/css/style.css?v=1775873298 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [11/Apr/2026 10:08:18] "GET /static/js/main.js?v=1775873298 HTTP/1.1" 200 -
+INFO:market_data_akshare:efinance 数据获取完成: A股=5, 港美=0, 债商=0
+INFO:werkzeug:127.0.0.1 - - [11/Apr/2026 10:08:22] "GET /api/market HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [11/Apr/2026 10:09:19] "GET / HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [11/Apr/2026 10:09:19] "GET /static/css/style.css?v=1775873359 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [11/Apr/2026 10:09:19] "GET /static/js/main.js?v=1775873359 HTTP/1.1" 200 -
+INFO:market_data_akshare:efinance 数据获取完成: A股=5, 港美=0, 债商=0
+INFO:werkzeug:127.0.0.1 - - [11/Apr/2026 10:09:24] "GET /api/market HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [11/Apr/2026 10:09:40] "GET / HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [11/Apr/2026 10:09:40] "GET /static/css/style.css?v=1775873380 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [11/Apr/2026 10:09:40] "GET /static/js/main.js?v=1775873380 HTTP/1.1" 200 -
+WARNING:urllib3.connectionpool:Retrying (Retry(total=4, connect=None, read=None, redirect=None, status=None)) after connection broken by 'RemoteDisconnected('Remote end closed connection without response')': /api/qt/ulist.np/get?OSVersion=14.3&appVersion=6.3.8&fields=f12%2Cf14%2Cf3%2Cf2%2Cf15%2Cf16%2Cf17%2Cf4%2Cf8%2Cf10%2Cf9%2Cf5%2Cf6%2Cf18%2Cf20%2Cf21%2Cf13%2Cf124%2Cf297&fltt=2&plat=Iphone&product=EFund&secids=0.399001%2C0.399006%2C0.399330%2C0.899050%2C1.000300&serverVersion=6.3.6&version=6.3.8
+INFO:market_data_akshare:efinance 数据获取完成: A股=5, 港美=0, 债商=0
+INFO:werkzeug:127.0.0.1 - - [11/Apr/2026 10:10:02] "GET /api/market HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [11/Apr/2026 10:10:12] "GET / HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [11/Apr/2026 10:10:12] "GET /static/css/style.css?v=1775873412 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [11/Apr/2026 10:10:12] "GET /static/js/main.js?v=1775873412 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [11/Apr/2026 10:10:13] "[33mGET /favicon.ico HTTP/1.1[0m" 404 -
+WARNING:urllib3.connectionpool:Retrying (Retry(total=4, connect=None, read=None, redirect=None, status=None)) after connection broken by 'RemoteDisconnected('Remote end closed connection without response')': /api/qt/ulist.np/get?OSVersion=14.3&appVersion=6.3.8&fields=f12%2Cf14%2Cf3%2Cf2%2Cf15%2Cf16%2Cf17%2Cf4%2Cf8%2Cf10%2Cf9%2Cf5%2Cf6%2Cf18%2Cf20%2Cf21%2Cf13%2Cf124%2Cf297&fltt=2&plat=Iphone&product=EFund&secids=0.399001%2C0.399006%2C0.399330%2C0.899050%2C1.000300&serverVersion=6.3.6&version=6.3.8
+INFO:market_data_akshare:efinance 数据获取完成: A股=5, 港美=0, 债商=0
+INFO:werkzeug:127.0.0.1 - - [11/Apr/2026 10:10:35] "GET /api/market HTTP/1.1" 200 -

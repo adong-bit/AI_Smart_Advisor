@@ -592,3 +592,15 @@ INFO:werkzeug:127.0.0.1 - - [11/Apr/2026 09:57:21] "GET /static/css/style.css?v=
 INFO:werkzeug:127.0.0.1 - - [11/Apr/2026 09:57:21] "GET /static/js/main.js?v=1775872641 HTTP/1.1" 200 -
 INFO:market_data_akshare:efinance 数据获取完成: A股=5, 港美=0, 债商=0
 INFO:werkzeug:127.0.0.1 - - [11/Apr/2026 09:57:29] "GET /api/market HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [11/Apr/2026 10:04:43] "GET / HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [11/Apr/2026 10:04:43] "GET /static/css/style.css?v=1775873083 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [11/Apr/2026 10:04:43] "GET /static/js/main.js?v=1775873083 HTTP/1.1" 200 -
+INFO:market_data_akshare:efinance 数据获取完成: A股=5, 港美=0, 债商=0
+INFO:werkzeug:127.0.0.1 - - [11/Apr/2026 10:04:47] "GET /api/market HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [11/Apr/2026 10:05:01] "GET / HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [11/Apr/2026 10:05:01] "GET /static/css/style.css?v=1775873101 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [11/Apr/2026 10:05:01] "GET /static/js/main.js?v=1775873101 HTTP/1.1" 200 -
+INFO:market_data_akshare:efinance 数据获取完成: A股=5, 港美=0, 债商=0
+INFO:werkzeug:127.0.0.1 - - [11/Apr/2026 10:05:05] "GET /api/market HTTP/1.1" 200 -
+/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/multiprocessing/resource_tracker.py:216: UserWarning: resource_tracker: There appear to be 1 leaked semaphore objects to clean up at shutdown
+  warnings.warn('resource_tracker: There appear to be %d '

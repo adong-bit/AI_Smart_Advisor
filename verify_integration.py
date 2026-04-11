@@ -46,6 +46,16 @@ test_cases = [
         "expected_sentiment": "positive",
         "description": "测试5：强利好"
     },
+    {
+        "title": "诺基亚站上16年来新高",
+        "expected_sentiment": "positive",
+        "description": "测试6：新增词汇检测"
+    },
+    {
+        "title": "中兴通讯发布AI云电脑产品",
+        "expected_sentiment": "neutral",
+        "description": "测试7：增强中性判断"
+    },
 ]
 
 passed = 0
@@ -62,6 +72,7 @@ for test in test_cases:
     print(f"   预期: {expected.upper()}")
     print(f"   实际: {sentiment.upper()}")
     print(f"   置信度: {result['confidence']}")
+    print(f"   颜色: {result.get('tag_color', 'N/A')} ({result.get('tag_text', 'N/A')})")
     print(f"   理由: {result['reason']}")
     print()
     

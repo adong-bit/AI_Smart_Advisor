@@ -78,18 +78,16 @@ def analyze_news_sentiment(title):
     title_lower = title.lower()
     
     # 定义词汇库
-    negation_words = ["未", "没有", "不会", "不能", "缺乏", "无法", "难以", "风险", "担忧"]
+    negation_words = ["未", "没有", "不会", "不能", "缺乏", "无法", "难以"]
+    strong_bullish = ["涨停", "暴涨", "大幅上升", "创新高", "新高", "站上", "突破", "大幅增长", "利好", "回购", "增持", "利润增长", "收益增长"]
+    moderate_bullish = ["上涨", "反弹", "修复", "改善", "增长", "回暖", "扩张", "提振", "稳定", "确认", "发布", "推出", "新品"]
     
-    # 利好词库（增加"新高"等词汇）
-    strong_bullish = ["涨停", "暴涨", "大幅上升", "创新高", "新高", "利好", "回购", "增持", "利润增长", "收益增长", "站上"]
-    moderate_bullish = ["上涨", "反弹", "修复", "改善", "增长", "回暖", "扩张", "提振", "稳定", "确认", "突破", "创出"]
-    
-    # 利空词库
     strong_bearish = ["跌停", "暴跌", "大幅下跌", "创新低", "风险", "警告", "停产", "破产", "违约", "裁员", "大幅下降"]
     moderate_bearish = ["下跌", "回落", "走弱", "承压", "衰退", "下滑", "萎缩", "削减", "延迟", "困难"]
     
-    # 中性词库（新增：无明确情感指向的词汇）
-    neutral_words = ["发布", "产品", "矩阵", "系列", "推出", "推介", "宣布", "公告", "计划", "表示"]
+    # 需要特殊处理的词汇（自身包含信息，不是纯否定词）
+    # 比如"担忧"、"风险"应该是利空信号，不是否定词
+    bearish_indicator_words = ["担忧", "风险", "压力"]
     
     # 宏观相关词汇（中性，但提示关键信息）
     macro_keywords = {
@@ -123,7 +121,9 @@ def analyze_news_sentiment(title):
     moderate_bull_count = sum(1 for word in moderate_bullish if word in title)
     strong_bear_count = sum(1 for word in strong_bearish if word in title)
     moderate_bear_count = sum(1 for word in moderate_bearish if word in title)
-    neutral_count = sum(1 for word in neutral_words if word in title)
+    
+    # 检查特殊的利空指示词（不作为否定词处理）
+    bearish_indicator_count = sum(1 for word in bearish_indicator_words if word in title)
     
     # 宏观指标处理
     macro_sentiment = None
@@ -134,7 +134,7 @@ def analyze_news_sentiment(title):
     
     # 计算总体得分（加权）
     bullish_score = strong_bull_count * 3 + moderate_bull_count * 1
-    bearish_score = strong_bear_count * 3 + moderate_bear_count * 1
+    bearish_score = strong_bear_count * 3 + moderate_bear_count * 1 + bearish_indicator_count * 1
     
     # 如果有否定词，反转情感
     if has_negation:
@@ -145,23 +145,35 @@ def analyze_news_sentiment(title):
             bullish_score += bearish_score * 2
             bearish_score = 0
     
-    # 确定最终情感
-    if bullish_score > bearish_score:
+    # 确定最终情感（改进：增加中性的判断范围）
+    if bullish_score > bearish_score + 1:  # 利好必须明显大于利空
         sentiment = "positive"
         confidence = min(0.95, 0.5 + bullish_score * 0.15)
         reason = f"检测到{strong_bull_count}个强利好词、{moderate_bull_count}个温和利好词"
-    elif bearish_score > bullish_score:
+    elif bearish_score > bullish_score + 1:  # 利空必须明显大于利好
         sentiment = "negative"
         confidence = min(0.95, 0.5 + bearish_score * 0.15)
         reason = f"检测到{strong_bear_count}个强利空词、{moderate_bear_count}个温和利空词"
-    elif macro_sentiment:
+    elif macro_sentiment and abs(bullish_score - bearish_score) <= 1:
+        # 如果平衡或接近平衡，优先使用宏观因素
         sentiment, strength = macro_sentiment
         confidence = strength
-        reason = "基于宏观因素判断"
+        reason = "基于宏观因素判断（无明确多空信号）"
     else:
         sentiment = "neutral"
         confidence = 0.5
-        reason = "无明确利好/利空信号" + (f"（包含{neutral_count}个中性词汇）" if neutral_count > 0 else "")
+        reason = "新闻内容信息中性，无明确利好/利空信号"
+    
+    # 添加颜色标签
+    if sentiment == "positive":
+        tag_color = "#FF0000"  # 红色
+        tag_text = "利好"
+    elif sentiment == "negative":
+        tag_color = "#00B050"  # 绿色
+        tag_text = "利空"
+    else:
+        tag_color = "#FFFFFF"  # 白色
+        tag_text = "中性"
     
     return {
         "sentiment": sentiment,
@@ -170,6 +182,8 @@ def analyze_news_sentiment(title):
         "has_negation": has_negation,
         "bullish_score": bullish_score,
         "bearish_score": bearish_score,
+        "tag_color": tag_color,
+        "tag_text": tag_text,
     }
 
 STOCKS = [
