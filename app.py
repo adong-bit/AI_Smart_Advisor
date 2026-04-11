@@ -61,6 +61,110 @@ _load_local_env()
 KIMI_API_URL = "https://api.moonshot.cn/v1/chat/completions"
 KIMI_MODEL = os.getenv("KIMI_MODEL", "moonshot-v1-8k")
 
+
+# ===== 智能新闻情感判断函数 =====
+def analyze_news_sentiment(title):
+    """
+    多层次新闻情感分析：
+    1. 检查否定词（反转情感）
+    2. 统计利好/利空词汇
+    3. 考虑行业特殊性和语境
+    
+    返回: {"sentiment": "positive|negative|neutral", "confidence": 0.0-1.0, "reason": str}
+    """
+    if not title or not isinstance(title, str):
+        return {"sentiment": "neutral", "confidence": 0.5, "reason": "标题为空"}
+    
+    title_lower = title.lower()
+    
+    # 定义词汇库
+    negation_words = ["未", "没有", "不会", "不能", "缺乏", "无法", "难以", "风险", "担忧"]
+    strong_bullish = ["涨停", "暴涨", "大幅上升", "创新高", "突破", "利好", "回购", "增持", "利润增长", "收益增长"]
+    moderate_bullish = ["上涨", "反弹", "修复", "改善", "增长", "回暖", "扩张", "提振", "稳定", "确认"]
+    
+    strong_bearish = ["跌停", "暴跌", "大幅下跌", "创新低", "风险", "警告", "停产", "破产", "违约", "裁员", "大幅下降"]
+    moderate_bearish = ["下跌", "回落", "走弱", "承压", "衰退", "下滑", "萎缩", "削减", "延迟", "困难"]
+    
+    # 宏观相关词汇（中性，但提示关键信息）
+    macro_keywords = {
+        "降息": ("positive", 0.7),
+        "加息": ("negative", 0.7),
+        "降准": ("positive", 0.8),
+        "收紧": ("negative", 0.7),
+        "释放流动性": ("positive", 0.8),
+        "美联储": ("neutral", 0.5),
+        "汇率": ("neutral", 0.5),
+        "油价": ("neutral", 0.5),
+    }
+    
+    # 行业特殊性（同样信息对不同行业的影响）
+    industry_modifiers = {
+        "油价上升": {
+            "涨": ("positive", ["能源", "石油", "化工"]),
+            "利好": ("negative", ["航空", "物流", "公路"]),
+        },
+        "降息": {
+            "利好": ("positive", ["房地产", "银行", "保险"]),
+            "利空": ("negative", ["银行", "保险"]),
+        },
+    }
+    
+    # 逐一检查否定词
+    has_negation = any(neg in title for neg in negation_words)
+    
+    # 计数各类词汇
+    strong_bull_count = sum(1 for word in strong_bullish if word in title)
+    moderate_bull_count = sum(1 for word in moderate_bullish if word in title)
+    strong_bear_count = sum(1 for word in strong_bearish if word in title)
+    moderate_bear_count = sum(1 for word in moderate_bearish if word in title)
+    
+    # 宏观指标处理
+    macro_sentiment = None
+    for macro_word, (sentiment, strength) in macro_keywords.items():
+        if macro_word in title:
+            macro_sentiment = (sentiment, strength)
+            break
+    
+    # 计算总体得分（加权）
+    bullish_score = strong_bull_count * 3 + moderate_bull_count * 1
+    bearish_score = strong_bear_count * 3 + moderate_bear_count * 1
+    
+    # 如果有否定词，反转情感
+    if has_negation:
+        if bullish_score > 0:
+            bearish_score += bullish_score * 2
+            bullish_score = 0
+        elif bearish_score > 0:
+            bullish_score += bearish_score * 2
+            bearish_score = 0
+    
+    # 确定最终情感
+    if bullish_score > bearish_score:
+        sentiment = "positive"
+        confidence = min(0.95, 0.5 + bullish_score * 0.15)
+        reason = f"检测到{strong_bull_count}个强利好词、{moderate_bull_count}个温和利好词"
+    elif bearish_score > bullish_score:
+        sentiment = "negative"
+        confidence = min(0.95, 0.5 + bearish_score * 0.15)
+        reason = f"检测到{strong_bear_count}个强利空词、{moderate_bear_count}个温和利空词"
+    elif macro_sentiment:
+        sentiment, strength = macro_sentiment
+        confidence = strength
+        reason = "基于宏观因素判断"
+    else:
+        sentiment = "neutral"
+        confidence = 0.5
+        reason = "无明确利好/利空信号"
+    
+    return {
+        "sentiment": sentiment,
+        "confidence": round(confidence, 2),
+        "reason": reason,
+        "has_negation": has_negation,
+        "bullish_score": bullish_score,
+        "bearish_score": bearish_score,
+    }
+
 STOCKS = [
     {"code": "600519", "name": "贵州茅台", "industry": "白酒", "price": 1680.50, "pe": 28.5, "pb": 9.2, "roe": 32.1, "revenue_growth": 16.5, "profit_growth": 19.2, "debt_ratio": 22.1, "market_cap": 21120, "dividend_yield": 1.8, "momentum_3m": 5.2, "momentum_6m": 12.8, "analyst_rating": 4.5, "sentiment": 0.82},
     {"code": "601318", "name": "中国平安", "industry": "保险", "price": 48.30, "pe": 8.5, "pb": 1.1, "roe": 13.2, "revenue_growth": 5.8, "profit_growth": 8.1, "debt_ratio": 85.2, "market_cap": 8820, "dividend_yield": 4.2, "momentum_3m": -2.1, "momentum_6m": 3.5, "analyst_rating": 4.2, "sentiment": 0.68},
@@ -1229,13 +1333,16 @@ def market_data():
                         if not title or not pub:
                             continue
                         dt = datetime.strptime(pub, "%Y-%m-%d %H:%M:%S")
+                        analysis = analyze_news_sentiment(title)
                         records.append((dt, {
                             "title": title,
                             "source": "东方财富快讯",
                             "time": pub,
                             "link": str(row.get("链接", "")).strip(),
-                            "sentiment": "positive" if any(x in title for x in ["涨", "利好", "增长", "突破"]) else "negative",
+                            "sentiment": analysis["sentiment"],
                             "impact": "市场影响",
+                            "confidence": analysis["confidence"],
+                            "analysis_reason": analysis["reason"],
                         }))
                     except Exception:
                         continue
@@ -1255,13 +1362,16 @@ def market_data():
                         title = str(row.get("新闻标题", "")).strip()
                         if not title:
                             continue
+                        analysis = analyze_news_sentiment(title)
                         item = {
                             "title": title,
                             "source": str(row.get("文章来源", "财经快讯")),
                             "time": str(row.get("发布时间", "")),
                             "link": str(row.get("新闻链接", "")).strip(),
-                            "sentiment": "positive" if any(x in title for x in ["涨", "利好", "增长", "突破"]) else "negative",
+                            "sentiment": analysis["sentiment"],
                             "impact": "市场影响",
+                            "confidence": analysis["confidence"],
+                            "analysis_reason": analysis["reason"],
                         }
                         # 去重后补齐
                         if any(n["title"] == item["title"] for n in news):

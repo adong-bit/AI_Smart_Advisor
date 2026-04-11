@@ -581,3 +581,9 @@ INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:50:27] "GET /api/fund-search?q=东�
 INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:50:29] "GET /api/fund-search?q=东方ren'gong&limit=12 HTTP/1.1" 200 -
 INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:50:29] "GET /api/fund-search?q=东方人工&limit=12 HTTP/1.1" 200 -
 INFO:werkzeug:127.0.0.1 - - [08/Apr/2026 23:51:21] "POST /api/chat HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [11/Apr/2026 09:20:05] "GET / HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [11/Apr/2026 09:20:05] "GET /static/js/main.js?v=1775870405 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [11/Apr/2026 09:20:05] "GET /static/css/style.css?v=1775870405 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [11/Apr/2026 09:20:10] "[33mGET /favicon.ico HTTP/1.1[0m" 404 -
+INFO:market_data_akshare:efinance 数据获取完成: A股=5, 港美=0, 债商=0
+INFO:werkzeug:127.0.0.1 - - [11/Apr/2026 09:20:15] "GET /api/market HTTP/1.1" 200 -
