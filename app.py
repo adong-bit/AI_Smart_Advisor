@@ -79,11 +79,17 @@ def analyze_news_sentiment(title):
     
     # 定义词汇库
     negation_words = ["未", "没有", "不会", "不能", "缺乏", "无法", "难以", "风险", "担忧"]
-    strong_bullish = ["涨停", "暴涨", "大幅上升", "创新高", "突破", "利好", "回购", "增持", "利润增长", "收益增长"]
-    moderate_bullish = ["上涨", "反弹", "修复", "改善", "增长", "回暖", "扩张", "提振", "稳定", "确认"]
     
+    # 利好词库（增加"新高"等词汇）
+    strong_bullish = ["涨停", "暴涨", "大幅上升", "创新高", "新高", "利好", "回购", "增持", "利润增长", "收益增长", "站上"]
+    moderate_bullish = ["上涨", "反弹", "修复", "改善", "增长", "回暖", "扩张", "提振", "稳定", "确认", "突破", "创出"]
+    
+    # 利空词库
     strong_bearish = ["跌停", "暴跌", "大幅下跌", "创新低", "风险", "警告", "停产", "破产", "违约", "裁员", "大幅下降"]
     moderate_bearish = ["下跌", "回落", "走弱", "承压", "衰退", "下滑", "萎缩", "削减", "延迟", "困难"]
+    
+    # 中性词库（新增：无明确情感指向的词汇）
+    neutral_words = ["发布", "产品", "矩阵", "系列", "推出", "推介", "宣布", "公告", "计划", "表示"]
     
     # 宏观相关词汇（中性，但提示关键信息）
     macro_keywords = {
@@ -117,6 +123,7 @@ def analyze_news_sentiment(title):
     moderate_bull_count = sum(1 for word in moderate_bullish if word in title)
     strong_bear_count = sum(1 for word in strong_bearish if word in title)
     moderate_bear_count = sum(1 for word in moderate_bearish if word in title)
+    neutral_count = sum(1 for word in neutral_words if word in title)
     
     # 宏观指标处理
     macro_sentiment = None
@@ -154,7 +161,7 @@ def analyze_news_sentiment(title):
     else:
         sentiment = "neutral"
         confidence = 0.5
-        reason = "无明确利好/利空信号"
+        reason = "无明确利好/利空信号" + (f"（包含{neutral_count}个中性词汇）" if neutral_count > 0 else "")
     
     return {
         "sentiment": sentiment,
