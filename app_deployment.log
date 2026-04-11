@@ -33,3 +33,8 @@ INFO:werkzeug:127.0.0.1 - - [11/Apr/2026 10:10:13] "[33mGET /favicon.ico HTTP/1
 WARNING:urllib3.connectionpool:Retrying (Retry(total=4, connect=None, read=None, redirect=None, status=None)) after connection broken by 'RemoteDisconnected('Remote end closed connection without response')': /api/qt/ulist.np/get?OSVersion=14.3&appVersion=6.3.8&fields=f12%2Cf14%2Cf3%2Cf2%2Cf15%2Cf16%2Cf17%2Cf4%2Cf8%2Cf10%2Cf9%2Cf5%2Cf6%2Cf18%2Cf20%2Cf21%2Cf13%2Cf124%2Cf297&fltt=2&plat=Iphone&product=EFund&secids=0.399001%2C0.399006%2C0.399330%2C0.899050%2C1.000300&serverVersion=6.3.6&version=6.3.8
 INFO:market_data_akshare:efinance 数据获取完成: A股=5, 港美=0, 债商=0
 INFO:werkzeug:127.0.0.1 - - [11/Apr/2026 10:10:35] "GET /api/market HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [11/Apr/2026 10:16:52] "GET / HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [11/Apr/2026 10:16:52] "GET /static/css/style.css?v=1775873812 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [11/Apr/2026 10:16:52] "GET /static/js/main.js?v=1775873812 HTTP/1.1" 200 -
+INFO:market_data_akshare:efinance 数据获取完成: A股=5, 港美=0, 债商=0
+INFO:werkzeug:127.0.0.1 - - [11/Apr/2026 10:16:58] "GET /api/market HTTP/1.1" 200 -
