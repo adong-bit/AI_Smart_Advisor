@@ -14,7 +14,6 @@ import logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-
 class MarketDataFetcher:
     """市场数据获取器 - 使用 AkShare"""
 
@@ -386,19 +385,14 @@ class MarketDataFetcher:
                 news_list = []
                 for idx, row in df.head(limit).iterrows():
                     try:
-                        # 分析情感
+                        # 情感标注以 Web 端「市场总览 /api/market」Kimi 为准；此处不跑规则引擎
                         title = str(row.get('新闻标题', ''))
-                        sentiment = 'neutral'
-                        if any(word in title for word in ['涨', '利好', '增长', '突破', '创新高']):
-                            sentiment = 'positive'
-                        elif any(word in title for word in ['跌', '利空', '下降', '下跌', '风险']):
-                            sentiment = 'negative'
-
                         news_list.append({
                             "title": title,
                             "source": "财经快讯",
                             "time": "刚刚",
-                            "sentiment": sentiment,
+                            "sentiment": "neutral",
+                            "sentiment_source": "data_fetcher_neutral",
                             "impact": "市场影响",
                         })
                     except Exception:

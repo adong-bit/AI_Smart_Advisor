@@ -134,7 +134,7 @@
                         <div class="card card-sectors">
                             <div class="card-header">
                                 <h3>板块热力图</h3>
-                                <span class="card-badge">实时</span>
+                                <span id="sectorHeatmapDateBadge" class="card-badge sector-heatmap-date" title="本快照对应的交易日；周末为最近周五">{{ sector_board_date }}</span>
                             </div>
                             <div class="card-body">
                                 <div id="sectorGrid" class="sector-grid"></div>
@@ -153,10 +153,23 @@
                             </div>
                         </div>
 
-                        <div class="card">
-                            <div class="card-header"><h3>A股市场情绪指标</h3></div>
-                            <div class="card-body">
-                                <div id="sentimentGauge" style="width:100%;height:200px;"></div>
+                        <div class="card card-sentiment">
+                            <div class="card-header">
+                                <h3>A股市场情绪指标</h3>
+                                <span class="card-badge sentiment-badge" title="盘面涨跌 + 快讯多空 + 标题措辞 + 量能活跃度">四因子</span>
+                            </div>
+                            <div class="card-body sentiment-card-body">
+                                <p id="sentimentPurpose" class="sentiment-purpose"></p>
+                                <p id="sentimentVolumeDataDate" class="sentiment-volume-data-date" aria-live="polite"></p>
+                                <div class="sentiment-layout">
+                                    <div class="sentiment-gauge-col">
+                                        <div id="sentimentGauge" class="sentiment-gauge-chart"></div>
+                                    </div>
+                                    <div class="sentiment-side-col">
+                                        <div id="sentimentReadout" class="sentiment-readout"></div>
+                                        <div id="sentimentFactors" class="sentiment-factors"></div>
+                                    </div>
+                                </div>
                                 <div id="sentimentHint" class="sentiment-hint"></div>
                             </div>
                         </div>
@@ -286,13 +299,20 @@
                                             <svg viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2" width="16" height="16"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
                                             <span>以上配置方案由AI基于现代投资组合理论(MPT)生成，仅供参考</span>
                                         </div>
+                                        <div id="allocAdviceBanner"></div>
+                                        <div id="allocTiltNote" class="alloc-tilt-note hidden"></div>
+                                        <div id="allocAdviceCard" class="alloc-advice-card hidden">
+                                            <div id="allocAdviceText" class="alloc-advice-text"></div>
+                                            <ul id="allocAdvicePoints" class="alloc-advice-points"></ul>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
-                            <div class="card" style="margin-top:20px">
+                                <div class="card" style="margin-top:20px">
                                 <div class="card-header"><h3>历史回测模拟</h3></div>
                                 <div class="card-body">
                                     <div id="backtestChart" style="width:100%;height:300px;"></div>
+                                    <p class="backtest-disclaimer">模拟数据仅供参考，基于各类资产历史统计参数推算，组合收益与沪深300走势存在相关性联动，不代表真实收益，不构成投资建议。</p>
                                 </div>
                             </div>
                         </div>
@@ -312,7 +332,7 @@
                                     <div class="factor-slider">
                                         <div class="factor-label">
                                             <span>价值因子</span>
-                                            <span class="factor-desc">PE、PB、股息率</span>
+                                            <span class="factor-desc">PE低估值 + 短线性价比</span>
                                         </div>
                                         <input type="range" min="0" max="50" value="20" id="factorValue" oninput="updateFactorDisplay()">
                                         <span class="factor-value" id="factorValueDisplay">20%</span>
@@ -320,7 +340,7 @@
                                     <div class="factor-slider">
                                         <div class="factor-label">
                                             <span>成长因子</span>
-                                            <span class="factor-desc">营收增速、利润增速</span>
+                                            <span class="factor-desc">60日/20日中期涨幅趋势</span>
                                         </div>
                                         <input type="range" min="0" max="50" value="20" id="factorGrowth" oninput="updateFactorDisplay()">
                                         <span class="factor-value" id="factorGrowthDisplay">20%</span>
@@ -328,7 +348,7 @@
                                     <div class="factor-slider">
                                         <div class="factor-label">
                                             <span>质量因子</span>
-                                            <span class="factor-desc">ROE、资产负债率</span>
+                                            <span class="factor-desc">ROE盈利能力 + 流动性</span>
                                         </div>
                                         <input type="range" min="0" max="50" value="25" id="factorQuality" oninput="updateFactorDisplay()">
                                         <span class="factor-value" id="factorQualityDisplay">25%</span>
@@ -336,7 +356,7 @@
                                     <div class="factor-slider">
                                         <div class="factor-label">
                                             <span>动量因子</span>
-                                            <span class="factor-desc">3/6个月涨幅</span>
+                                            <span class="factor-desc">52周区间位置 + 中短期涨幅</span>
                                         </div>
                                         <input type="range" min="0" max="50" value="20" id="factorMomentum" oninput="updateFactorDisplay()">
                                         <span class="factor-value" id="factorMomentumDisplay">20%</span>
@@ -344,7 +364,7 @@
                                     <div class="factor-slider">
                                         <div class="factor-label">
                                             <span>情绪因子</span>
-                                            <span class="factor-desc">分析师评级、NLP情绪</span>
+                                            <span class="factor-desc">换手率活跃度 + 5日涨跌</span>
                                         </div>
                                         <input type="range" min="0" max="50" value="15" id="factorSentiment" oninput="updateFactorDisplay()">
                                         <span class="factor-value" id="factorSentimentDisplay">15%</span>
@@ -360,6 +380,7 @@
                             <h3>选股结果</h3>
                             <span id="stockCount" class="card-badge">20只</span>
                         </div>
+                        <div id="screenReasonBanner"></div>
                         <div class="card-body" style="padding:0">
                             <div class="stock-table-wrapper">
                                 <table class="stock-table" id="stockTable">
@@ -401,8 +422,8 @@
                             <div class="card-header">
                                 <h3>收益率曲线（我的组合 vs 沪深300）</h3>
                                 <div class="card-actions">
-                                    <button class="btn-sm active">近半年</button>
-                                    <button class="btn-sm">近一年</button>
+                                    <button id="btnPortfolio180" class="btn-sm active" onclick="switchPortfolioTimeframe(180)">近半年</button>
+                                    <button id="btnPortfolio365" class="btn-sm" onclick="switchPortfolioTimeframe(365)">近一年</button>
                                 </div>
                             </div>
                             <div class="card-body">
@@ -410,7 +431,7 @@
                             </div>
                         </div>
 
-                        <div class="card">
+                        <div class="card" style="grid-column: 1 / -1">
                             <div class="card-header">
                                 <h3>持仓明细</h3>
                                 <div class="card-actions">
@@ -418,6 +439,7 @@
                                     <button class="btn-sm" onclick="triggerScreenshotImport()">截图导入</button>
                                     <button class="btn-sm active" id="holdingTabStock" onclick="switchHoldingTab('stock')">股票</button>
                                     <button class="btn-sm" id="holdingTabFund" onclick="switchHoldingTab('fund')">基金</button>
+                                    <button class="btn-sm btn-sm-ai" onclick="refreshHoldingIndicators()" title="刷新指标数据">刷新指标</button>
                                 </div>
                             </div>
                             <div class="card-body" style="padding:0">
@@ -432,13 +454,6 @@
                         </div>
 
                         <div class="card">
-                            <div class="card-header"><h3>风险指标</h3></div>
-                            <div class="card-body">
-                                <div id="riskMetrics" class="risk-metrics-grid"></div>
-                            </div>
-                        </div>
-
-                        <div class="card">
                             <div class="card-header"><h3>行业分布</h3></div>
                             <div class="card-body">
                                 <div id="industryPie" style="width:100%;height:250px;"></div>
@@ -448,7 +463,7 @@
                         <div class="card">
                             <div class="card-header">
                                 <h3>AI 调仓建议</h3>
-                                <span class="card-badge ai-badge">智能分析</span>
+                                <span class="card-badge ai-badge">Kimi + 本地规则</span>
                             </div>
                             <div class="card-body">
                                 <div id="rebalanceAlerts" class="rebalance-alerts"></div>
@@ -666,6 +681,36 @@
         </main>
     </div>
 
+    <script>
+        window.__API_BASE__ = {{ api_url_prefix|tojson }};
+    </script>
     <script src="{{ url_for('static', filename='js/main.js', v=asset_version) }}"></script>
+
+    <!-- Kimi 估值分析弹窗 -->
+    <div class="modal hidden" id="kimiValuationModal">
+        <div class="modal-mask" onclick="closeKimiValuationModal()"></div>
+        <div class="modal-panel kimi-valuation-panel">
+            <div class="modal-header">
+                <div style="display:flex;align-items:center;gap:10px">
+                    <span class="kimi-badge-icon">K</span>
+                    <h3 id="kimiValuationTitle">Kimi AI 估值分析</h3>
+                </div>
+                <button class="modal-close" onclick="closeKimiValuationModal()">×</button>
+            </div>
+            <div class="modal-body" style="padding:20px">
+                <div id="kimiValuationMeta" class="kimi-meta-bar"></div>
+                <div id="kimiValuationContent" class="kimi-valuation-content">
+                    <div class="kimi-loading">
+                        <div class="typing-indicator">
+                            <div class="typing-dot"></div>
+                            <div class="typing-dot"></div>
+                            <div class="typing-dot"></div>
+                        </div>
+                        <span style="color:var(--text-muted);font-size:13px;margin-top:8px">Kimi 正在分析估值，请稍候…</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
 </body>
 </html>

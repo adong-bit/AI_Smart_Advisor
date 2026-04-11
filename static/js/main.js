@@ -11,12 +11,22 @@ let currentKlinePeriod = 'day';
 let rawKlineMap = { shanghai: [], hstech: [], nasdaq: [] };
 let currentKlineIndex = 'shanghai';
 let holdingsData = [];
+let holdingIndicators = {};
 let currentHoldingTab = 'stock';
 let currentHoldingPage = 1;
 const HOLDINGS_PAGE_SIZE = 10;
 const RISK_STORAGE_KEY = 'smartAdvisorRiskResultV1';
 const HOLDINGS_STORAGE_KEY = 'smartAdvisorMockHoldingsV1';
 let portfolioRawData = null;
+/** Kimi 组合调仓建议（「AI 调仓建议」卡片） */
+let portfolioKimiRebalance = {
+    loading: false,
+    error: '',
+    text: '',
+    hash: '',
+    macroSnapshot: '',
+};
+let _portfolioKimiDebounceTimer = null;
 let selectedAddAsset = null;
 let pendingOcrImportItems = [];
 let hs300ReturnCache = null;
@@ -42,18 +52,62 @@ const LOCAL_STOCK_SUGGEST_POOL = [
     { code: '601899', name: '紫金矿业', category: '股票' }
 ];
 
+/** 与模板注入的 request.script_root 拼接（子路径部署时 API 仍正确） */
+function apiUrl(path) {
+    const base = (typeof window !== 'undefined' && window.__API_BASE__)
+        ? String(window.__API_BASE__).replace(/\/$/, '')
+        : '';
+    const p = path.startsWith('/') ? path : ('/' + path);
+    return base + p;
+}
+
+/** 读取 fetch 响应为 JSON；若为 HTML 或非 JSON 则返回可识别结构，避免 Unexpected token '<' */
+async function parseFetchJson(res) {
+    const text = await res.text();
+    const trimmed = text.trim();
+    if (!trimmed) {
+        return { _parseFailed: true, _httpStatus: res.status, _message: `空响应（HTTP ${res.status}）` };
+    }
+    if (trimmed[0] === '<') {
+        const m = text.match(/<title>([^<]*)<\/title>/i);
+        const title = m ? m[1].trim() : 'HTML';
+        return {
+            _parseFailed: true,
+            _httpStatus: res.status,
+            _message: `服务器返回 HTML（${title}），HTTP ${res.status}。常见原因：接口 404（请重启 Flask 加载最新路由）、访问端口与启动端口不一致、或反向代理把 /api 指到了前端首页。`,
+        };
+    }
+    try {
+        return JSON.parse(text);
+    } catch (e) {
+        return {
+            _parseFailed: true,
+            _httpStatus: res.status,
+            _message: `非 JSON（HTTP ${res.status}）：${e.message}。开头：${trimmed.slice(0, 100)}`,
+        };
+    }
+}
+
 function saveRiskResult(data) {
     if (!data || !data.profile || !data.allocation) return;
+    const payload = {
+        profile: data.profile,
+        allocation: data.allocation,
+        score: data.score,
+        max_score: data.max_score,
+        radar: data.radar
+    };
+    // 优先写服务端（本地文件持久化）
+    fetch('/api/risk-result', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+    }).catch(e => console.warn('风险测评结果上报服务端失败，仅保存至浏览器缓存:', e));
+    // 同步写 localStorage 作为离线缓存
     try {
-        localStorage.setItem(RISK_STORAGE_KEY, JSON.stringify({
-            profile: data.profile,
-            allocation: data.allocation,
-            score: data.score,
-            max_score: data.max_score,
-            radar: data.radar
-        }));
+        localStorage.setItem(RISK_STORAGE_KEY, JSON.stringify(payload));
     } catch (e) {
-        console.warn('Failed to save risk result:', e);
+        console.warn('Failed to save risk result to localStorage:', e);
     }
 }
 
@@ -68,6 +122,7 @@ function getDefaultRadar() {
 }
 
 function loadRiskResult() {
+    // 仅作 localStorage 同步读取（用于离线或接口未响应前的快速渲染）
     try {
         const raw = localStorage.getItem(RISK_STORAGE_KEY);
         if (!raw) return null;
@@ -78,21 +133,54 @@ function loadRiskResult() {
         parsed.max_score = typeof parsed.max_score === 'number' ? parsed.max_score : 50;
         return parsed;
     } catch (e) {
-        console.warn('Failed to load risk result:', e);
+        console.warn('Failed to load risk result from localStorage:', e);
         return null;
     }
 }
 
-function clearRiskResult() {
+async function loadRiskResultFromServer() {
     try {
-        localStorage.removeItem(RISK_STORAGE_KEY);
+        const res = await fetch('/api/risk-result?id=latest');
+        const data = await res.json();
+        if (!data.found || !data.result) return null;
+        const r = data.result;
+        r.radar = r.radar || getDefaultRadar();
+        r.score = typeof r.score === 'number' ? r.score : 30;
+        r.max_score = typeof r.max_score === 'number' ? r.max_score : 50;
+        // 同步写入 localStorage 保持一致
+        try { localStorage.setItem(RISK_STORAGE_KEY, JSON.stringify(r)); } catch (_) {}
+        return r;
     } catch (e) {
-        console.warn('Failed to clear risk result:', e);
+        console.warn('从服务端加载风险测评结果失败，回退到浏览器缓存:', e);
+        return loadRiskResult();
     }
 }
 
-function restoreRiskAssessmentUI() {
-    const saved = loadRiskResult();
+function clearRiskResult() {
+    // 删除服务端记录
+    fetch('/api/risk-result', { method: 'DELETE' })
+        .catch(e => console.warn('服务端风险测评结果删除失败:', e));
+    // 同时清 localStorage
+    try {
+        localStorage.removeItem(RISK_STORAGE_KEY);
+    } catch (e) {
+        console.warn('Failed to clear risk result from localStorage:', e);
+    }
+}
+
+async function restoreRiskAssessmentUI() {
+    // 先用 localStorage 快速渲染（避免等待接口时页面空白）
+    const cached = loadRiskResult();
+    if (cached) {
+        riskProfile = cached.profile;
+        riskResultData = cached;
+        allocationData = cached.allocation;
+        document.getElementById('riskIntro').classList.add('hidden');
+        document.getElementById('riskQuiz').classList.add('hidden');
+        document.getElementById('riskResult').classList.remove('hidden');
+    }
+    // 再从服务端拉取最新（会覆盖缓存版本）
+    const saved = await loadRiskResultFromServer();
     if (!saved) return;
     riskProfile = saved.profile;
     riskResultData = saved;
@@ -100,6 +188,8 @@ function restoreRiskAssessmentUI() {
     document.getElementById('riskIntro').classList.add('hidden');
     document.getElementById('riskQuiz').classList.add('hidden');
     document.getElementById('riskResult').classList.remove('hidden');
+    // 若当前正处于测评页则刷新显示
+    if (currentPage === 'risk') renderResult(saved);
 }
 
 // ==================== Page Navigation ====================
@@ -127,20 +217,52 @@ function switchPage(page) {
 
 // ==================== Dashboard ====================
 async function loadDashboard() {
+    renderNews([], 'loading');
+    renderInsights([], 'loading', '');
     try {
         const res = await fetch('/api/market');
         const data = await res.json();
+        // 板块日期徽章须先于可能抛错的渲染更新（例如 sectors 非数组时 renderSectors 会异常）
+        const sa = data.sentiment_analysis && typeof data.sentiment_analysis === 'object' ? data.sentiment_analysis : {};
+        const boardDate = (data.sector_board_data_date && String(data.sector_board_data_date).trim())
+            || (sa.volume_data_date && String(sa.volume_data_date).trim())
+            || '';
+        setSectorHeatmapDateBadge(boardDate);
+        // 缓存行情快照供智能配置调用，避免重复请求
+        window.__marketData = {
+            a_share_indices: data.indices || [],
+            hk_indices: data.hk_indices || [],
+            us_indices: data.us_indices || [],
+            sectors: data.sectors || [],
+            flash_news: data.news || [],
+            market_sentiment: data.market_sentiment || {},
+            sentiment_analysis: data.sentiment_analysis || {},
+        };
         renderIndices(data.indices, data.update_time);  // 传入更新时间
         renderHkIndices(data.hk_indices || []);
         renderUsIndices(data.us_indices || []);
         renderKline(data.kline, data.kline_map);
         renderSectors(data.sectors);
-        renderInsights(data.ai_insights);
+        renderInsights(
+            data.ai_insights || [],
+            data.insights_engine || 'kimi_disabled',
+            data.insights_kimi_error || ''
+        );
         renderSentiment(data.market_sentiment, data.sentiment_analysis || {});
-        renderNews(data.news);
+        renderNews(data.news || [], data.news_sentiment_engine || 'kimi_disabled', data.news_kimi_error || '');
     } catch (e) {
         console.error('Failed to load dashboard:', e);
+        setSectorHeatmapDateBadge('');
+        renderInsights([], 'unavailable', '');
+        renderNews([], 'unavailable');
     }
+}
+
+function setSectorHeatmapDateBadge(label) {
+    const el = document.getElementById('sectorHeatmapDateBadge');
+    if (!el) return;
+    const t = label && String(label).trim();
+    el.textContent = t || '—';
 }
 
 function renderIndices(indices, updateTime) {
@@ -465,7 +587,9 @@ function calcMA(data, period) {
 
 function renderSectors(sectors) {
     const grid = document.getElementById('sectorGrid');
-    grid.innerHTML = sectors.map(s => {
+    if (!grid) return;
+    const list = Array.isArray(sectors) ? sectors : [];
+    grid.innerHTML = list.map(s => {
         const isUp = s.change >= 0;
         const bg = isUp
             ? `rgba(239,68,68,${Math.min(0.35, Math.abs(s.change) * 0.07)})`
@@ -478,64 +602,255 @@ function renderSectors(sectors) {
     }).join('');
 }
 
-function renderInsights(insights) {
-    document.getElementById('aiInsights').innerHTML = insights.map(text =>
-        `<div class="insight-item">${text}</div>`
-    ).join('');
+function _insightsEngineBanner(engine, kimiError) {
+    const e = engine || 'kimi_disabled';
+    let cls = 'news-engine-banner is-rules';
+    let text = '市场洞察仅使用 Kimi：当前未启用或不可用';
+    if (e === 'kimi') {
+        cls = 'news-engine-banner is-kimi';
+        text = '市场洞察由「Kimi 大模型」根据当日快照（A股/港美股指数、板块热力、7×24 快讯及情绪标注）自动生成';
+    } else if (e === 'kimi_failed') {
+        cls = 'news-engine-banner is-unavailable';
+        text = 'Kimi 生成市场洞察失败，以下为占位说明（无本地规则拼装替代）';
+    } else if (e === 'kimi_disabled') {
+        cls = 'news-engine-banner is-rules';
+        text = '市场洞察未调用 Kimi：请查看下方「详情」原因。常见情况：.env 中未填写 KIMI_API_KEY，或误设 INSIGHTS_USE_KIMI=0，或 shell 里 export 了空密钥挡住 .env。亦支持变量名 MOONSHOT_API_KEY。';
+    } else if (e === 'loading') {
+        cls = 'news-engine-banner is-loading';
+        text = '正在调用 Kimi 生成市场洞察…';
+    } else if (e === 'unavailable') {
+        cls = 'news-engine-banner is-unavailable';
+        text = '市场接口异常，市场洞察未更新';
+    }
+    const err = (kimiError && String(kimiError).trim()) ? String(kimiError).trim() : '';
+    const sub = err && (e === 'kimi_failed' || e === 'kimi_disabled')
+        ? `<div class="news-engine-banner-detail">详情：${_escapeHtml(err)}</div>`
+        : '';
+    return `<div class="${cls}" role="status" aria-live="polite">${text}${sub}</div>`;
+}
+
+function renderInsights(insights, engine, kimiError) {
+    const el = document.getElementById('aiInsights');
+    if (!el) return;
+    const eng = engine || 'kimi_disabled';
+    const banner = _insightsEngineBanner(eng, kimiError || '');
+    const list = Array.isArray(insights) ? insights : [];
+    const body = list.length
+        ? list.map((text) => `<div class="insight-item">${_escapeHtml(String(text))}</div>`).join('')
+        : '<div class="insight-item">暂无市场洞察</div>';
+    el.innerHTML = banner + body;
 }
 
 function renderSentiment(value, analysis = {}) {
-    const chart = echarts.init(document.getElementById('sentimentGauge'));
-    const label = analysis.label || (value > 0.6 ? '偏贪婪' : value > 0.4 ? '中性' : '偏恐惧');
+    const gaugeEl = document.getElementById('sentimentGauge');
+    const purposeEl = document.getElementById('sentimentPurpose');
+    const readoutEl = document.getElementById('sentimentReadout');
+    const factorsEl = document.getElementById('sentimentFactors');
+    const hintEl = document.getElementById('sentimentHint');
+    if (!gaugeEl) return;
+
+    if (window.__sentimentChart) {
+        try { window.__sentimentChart.dispose(); } catch (e) { /* ignore */ }
+        window.__sentimentChart = null;
+    }
+    const chart = echarts.init(gaugeEl);
+    window.__sentimentChart = chart;
+
+    const v = typeof value === 'number' && !isNaN(value) ? Math.max(0, Math.min(1, value)) : 0.5;
+    const label = analysis.label || (v > 0.6 ? '偏贪婪' : v > 0.4 ? '中性' : '偏恐惧');
+    const detailColor = v > 0.6 ? '#ef4444' : v > 0.4 ? '#f59e0b' : '#10b981';
+
     chart.setOption({
         backgroundColor: 'transparent',
         series: [{
             type: 'gauge',
-            startAngle: 200, endAngle: -20,
-            min: 0, max: 1,
-            radius: '90%',
-            progress: { show: true, width: 14, itemStyle: { color: { type: 'linear', x: 0, y: 0, x2: 1, y2: 0, colorStops: [
-                { offset: 0, color: '#10b981' }, { offset: 0.5, color: '#f59e0b' }, { offset: 1, color: '#ef4444' }
-            ]}}},
-            axisLine: { lineStyle: { width: 14, color: [[1, '#1e293b']] }},
+            startAngle: 200,
+            endAngle: -20,
+            min: 0,
+            max: 1,
+            splitNumber: 4,
+            radius: '88%',
+            progress: {
+                show: true,
+                width: 16,
+                itemStyle: {
+                    color: {
+                        type: 'linear', x: 0, y: 0, x2: 1, y2: 0,
+                        colorStops: [
+                            { offset: 0, color: '#10b981' },
+                            { offset: 0.5, color: '#f59e0b' },
+                            { offset: 1, color: '#ef4444' }
+                        ]
+                    }
+                }
+            },
+            axisLine: { lineStyle: { width: 16, color: [[1, '#1e293b']] } },
             axisTick: { show: false },
             splitLine: { show: false },
-            axisLabel: { show: false },
-            pointer: { show: false },
-            title: { show: true, offsetCenter: [0, '40%'], color: '#64748b', fontSize: 13 },
-            detail: {
-                valueAnimation: true, offsetCenter: [0, '-5%'],
-                fontSize: 32, fontWeight: 700,
-                formatter: v => (v * 100).toFixed(0),
-                color: value > 0.6 ? '#ef4444' : value > 0.4 ? '#f59e0b' : '#10b981'
+            axisLabel: {
+                show: true,
+                distance: -42,
+                fontSize: 11,
+                color: '#64748b',
+                formatter(val) {
+                    if (val <= 0.01) return '恐惧';
+                    if (Math.abs(val - 0.5) < 0.01) return '中性';
+                    if (val >= 0.99) return '贪婪';
+                    return '';
+                }
             },
-            data: [{ value: value, name: label }]
+            pointer: { show: false },
+            anchor: { show: true, size: 11, itemStyle: { color: detailColor, borderWidth: 2, borderColor: '#0f172a' } },
+            title: { show: true, offsetCenter: [0, '78%'], color: '#94a3b8', fontSize: 12 },
+            detail: { show: false },
+            data: [{ value: v, name: '情绪温度' }]
         }]
     });
 
-    const hintEl = document.getElementById('sentimentHint');
-    if (hintEl) {
-        const prompt = analysis.prompt || '情绪波动处于常态区间，建议按计划执行。';
-        const nlpSummary = analysis.nlp_summary || '';
-        const z = typeof analysis.zscore === 'number' ? `（偏离均值 ${analysis.zscore.toFixed(2)}σ）` : '';
-        hintEl.textContent = `${prompt}${z}${nlpSummary ? ` ${nlpSummary}` : ''}`;
+    const volDate = analysis.volume_data_date && String(analysis.volume_data_date).trim();
+    const volDateEl = document.getElementById('sentimentVolumeDataDate');
+    if (volDateEl) {
+        if (volDate) {
+            volDateEl.style.display = '';
+            volDateEl.textContent = `上证量能等因子对应交易日：${volDate}（周末/休市日展示为最近一个交易日）`;
+        } else {
+            volDateEl.textContent = '';
+            volDateEl.style.display = 'none';
+        }
     }
 
-    window.addEventListener('resize', () => chart.resize());
+    if (purposeEl) {
+        if (analysis.usage_note) {
+            purposeEl.textContent = analysis.usage_note;
+        } else {
+            purposeEl.textContent = volDate
+                ? `把板块强弱、快讯多空、标题措辞与上证量能活跃度合成 0–100 分，用于观察 ${volDate} 口径下的风险偏好温度（不构成投资建议）。`
+                : '把板块强弱、快讯多空、标题措辞与上证量能活跃度合成 0–100 分，用于观察风险偏好温度（不构成投资建议）。';
+        }
+    }
+
+    if (readoutEl) {
+        const pct = analysis.value_pct != null ? Number(analysis.value_pct) : v * 100;
+        const z = typeof analysis.zscore === 'number'
+            ? `<div class="sentiment-readout-z">标题措辞波动：约 ${analysis.zscore.toFixed(2)} 倍标准差（越大越极端）</div>`
+            : '';
+        readoutEl.innerHTML = `
+            <div class="sentiment-readout-score">${pct.toFixed(0)}<span class="sentiment-readout-sl">/100</span></div>
+            <div class="sentiment-readout-label" style="color:${detailColor}">${_escapeHtml(label)}</div>
+            ${z}`;
+    }
+
+    if (factorsEl) {
+        const factors = Array.isArray(analysis.factors) ? analysis.factors : [];
+        if (!factors.length) {
+            factorsEl.innerHTML = '<div class="sentiment-factors-empty">因子明细暂不可用</div>';
+        } else {
+            factorsEl.innerHTML = factors.map((f) => {
+                const c = Math.max(-1, Math.min(1, Number(f.contribution) || 0));
+                const fill = ((c + 1) / 2) * 100;
+                const tip = c > 0.12 ? '偏多' : c < -0.12 ? '偏空' : '中性';
+                const col = c > 0.12 ? '#f87171' : c < -0.12 ? '#34d399' : '#94a3b8';
+                return `<div class="sentiment-factor">
+                    <div class="sentiment-factor-head">
+                        <span class="sentiment-factor-name">${_escapeHtml(f.name || '')}</span>
+                        <span class="sentiment-factor-w">${f.weight_pct != null ? f.weight_pct : ''}%</span>
+                    </div>
+                    <div class="sentiment-factor-bar-wrap" title="${_escapeHtml(f.desc || '')}">
+                        <div class="sentiment-factor-bar-mid"></div>
+                        <div class="sentiment-factor-bar-fill" style="width:${fill}%;background:${col};"></div>
+                    </div>
+                    <div class="sentiment-factor-foot">
+                        <span class="sentiment-factor-tip" style="color:${col}">${tip}</span>
+                        <span class="sentiment-factor-desc">${_escapeHtml(f.desc || '')}</span>
+                    </div>
+                </div>`;
+            }).join('');
+        }
+    }
+
+    if (hintEl) {
+        const prompt = _escapeHtml(analysis.prompt || '情绪波动处于常态区间，建议按计划执行。');
+        const nlpSummary = analysis.nlp_summary ? _escapeHtml(analysis.nlp_summary) : '';
+        const comp = analysis.composite_raw != null
+            ? `<div class="sentiment-hint-row"><span class="sentiment-hint-k">合成净向</span><span class="sentiment-hint-v">${Number(analysis.composite_raw).toFixed(2)}</span><span class="sentiment-hint-s">（-1 谨慎 ～ +1 积极）</span></div>`
+            : '';
+        hintEl.innerHTML = `
+            <div class="sentiment-hint-title">快讯与量能摘要</div>
+            <div class="sentiment-hint-row sentiment-hint-prompt">${prompt}</div>
+            ${comp}
+            ${nlpSummary ? `<div class="sentiment-hint-row sentiment-hint-nlp">${nlpSummary}</div>` : ''}`;
+    }
+
+    if (!window.__sentimentResizeBound) {
+        window.__sentimentResizeBound = true;
+        window.addEventListener('resize', () => {
+            if (window.__sentimentChart) window.__sentimentChart.resize();
+        });
+    } else if (window.__sentimentChart) {
+        window.__sentimentChart.resize();
+    }
 }
 
-function renderNews(news) {
-    document.getElementById('newsFeed').innerHTML = news.map(n =>
-        `<div class="news-item">
+function _escapeHtml(s) {
+    return String(s)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+}
+
+function _newsEngineBanner(engine, kimiError) {
+    const e = engine || 'kimi_disabled';
+    let cls = 'news-engine-banner is-rules';
+    let text = '快讯情绪仅使用 Kimi：当前未启用或无法判定';
+    if (e === 'kimi') {
+        cls = 'news-engine-banner is-kimi';
+        text = '利好/利空/中性 由「Kimi 大模型」判定';
+    } else if (e === 'kimi_failed') {
+        cls = 'news-engine-banner is-unavailable';
+        text = 'Kimi 调用失败，快讯已全部标为「中性」（无规则兜底）';
+    } else if (e === 'kimi_disabled') {
+        cls = 'news-engine-banner is-rules';
+        text = 'Kimi 未启用：请在项目根目录配置 .env 中的 KIMI_API_KEY，并重启服务（勿在 shell 中 export 空密钥，否则会挡住 .env）';
+    } else if (e === 'loading') {
+        cls = 'news-engine-banner is-loading';
+        text = '正在获取快讯并调用 Kimi 判定情绪…';
+    } else if (e === 'unavailable') {
+        cls = 'news-engine-banner is-unavailable';
+        text = '市场接口异常，快讯情绪未更新';
+    }
+    const err = (kimiError && String(kimiError).trim()) ? String(kimiError).trim() : '';
+    const sub = err && (e === 'kimi_failed' || e === 'kimi_disabled')
+        ? `<div class="news-engine-banner-detail">详情：${_escapeHtml(err)}</div>`
+        : '';
+    return `<div class="${cls}" role="status" aria-live="polite">${text}${sub}</div>`;
+}
+
+function renderNews(news, sentimentEngine, kimiError) {
+    const feed = document.getElementById('newsFeed');
+    if (!feed) return;
+    const engine = sentimentEngine || 'kimi_disabled';
+    const banner = _newsEngineBanner(engine, kimiError || '');
+    const arr = Array.isArray(news) ? news : [];
+    let listHtml = '';
+    if (engine === 'loading') {
+        listHtml = '<div class="news-placeholder">请稍候…</div>';
+    } else if (!arr.length) {
+        listHtml = '<div class="news-placeholder">暂无快讯数据</div>';
+    } else {
+        listHtml = arr.map(n =>
+            `<div class="news-item">
             ${n.link ? `<a class="news-title news-link" href="${n.link}" target="_blank" rel="noopener noreferrer">${n.title}</a>` : `<div class="news-title">${n.title}</div>`}
             <div class="news-meta">
                 <span>${n.source}</span>
                 <span>${n.time}</span>
-                <span class="news-sentiment ${n.sentiment}">${n.sentiment === 'positive' ? '利好' : '利空'}</span>
+                <span class="news-sentiment ${n.sentiment}">${n.sentiment === 'positive' ? '利好' : n.sentiment === 'negative' ? '利空' : '中性'}</span>
                 <span>${n.impact}</span>
             </div>
         </div>`
-    ).join('');
+        ).join('');
+    }
+    feed.innerHTML = banner + listHtml;
 }
 
 // ==================== Risk Assessment ====================
@@ -752,7 +1067,11 @@ function showAllocationDetail(data) {
 
     renderAllocPie(data.allocation);
     renderAllocDetails(data.allocation);
-    renderBacktest();
+    renderBacktest(data.allocation);
+
+    // 清空旧的 Kimi 建议，展示 loading 状态，然后异步加载
+    renderAllocationAdvice(null, 'loading', '', [], data.allocation);
+    loadAllocationAdvice(data.label);
 }
 
 function renderAllocPie(allocation) {
@@ -773,15 +1092,27 @@ function renderAllocPie(allocation) {
     window.addEventListener('resize', () => chart.resize());
 }
 
-function renderAllocDetails(allocation) {
-    document.getElementById('allocDetails').innerHTML = allocation.map(a =>
-        `<div class="alloc-item">
+function renderAllocDetails(allocation, baseAlloc) {
+    document.getElementById('allocDetails').innerHTML = allocation.map(a => {
+        let deltaHtml = '';
+        if (baseAlloc && baseAlloc.length) {
+            const baseItem = baseAlloc.find(b => b.name === a.name);
+            if (baseItem) {
+                const diff = Math.round((a.value - baseItem.value) * 10) / 10;
+                if (diff > 0) {
+                    deltaHtml = `<span class="alloc-delta alloc-delta-up">↑${diff}%</span>`;
+                } else if (diff < 0) {
+                    deltaHtml = `<span class="alloc-delta alloc-delta-down">↓${Math.abs(diff)}%</span>`;
+                }
+            }
+        }
+        return `<div class="alloc-item">
             <div class="alloc-color" style="background:${a.color}"></div>
             <span class="alloc-name">${a.name}</span>
-            <span class="alloc-pct">${a.value}%</span>
+            <span class="alloc-pct">${a.value}%${deltaHtml}</span>
             <div class="alloc-bar-bg"><div class="alloc-bar-fill" style="width:${a.value}%;background:${a.color}"></div></div>
-        </div>`
-    ).join('');
+        </div>`;
+    }).join('');
 }
 
 async function getHs300ReturnSeries(days = 365) {
@@ -798,11 +1129,217 @@ async function getHs300ReturnSeries(days = 365) {
     return cache;
 }
 
-async function renderBacktest() {
-    const chart = echarts.init(document.getElementById('backtestChart'));
+// ==================== 智能配置 Kimi 建议 + 情绪调仓 ====================
+
+async function loadAllocationAdvice(profile) {
+    const marketData = window.__marketData || {};
+    try {
+        const res = await fetch('/api/allocation-advice', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ profile, ...marketData }),
+        });
+        const data = await res.json();
+        renderAllocationAdvice(data, data.advice_engine, data.advice_kimi_error, data.adjusted_alloc || [], data.base_alloc || []);
+    } catch (e) {
+        renderAllocationAdvice(null, 'unavailable', String(e), [], []);
+    }
+}
+
+function _allocAdviceBanner(engine, kimiError) {
+    const e = engine || 'kimi_disabled';
+    let cls = 'news-engine-banner is-rules';
+    let text = '配置建议仅使用 Kimi：当前未启用或不可用';
+    if (e === 'kimi') {
+        cls = 'news-engine-banner is-kimi';
+        text = '配置建议由「Kimi 大模型」根据您的风险画像 + 当日市场情绪 + 行情快照自动生成';
+    } else if (e === 'kimi_failed') {
+        cls = 'news-engine-banner is-unavailable';
+        text = 'Kimi 生成配置建议失败，以下为兜底建议';
+    } else if (e === 'kimi_disabled') {
+        cls = 'news-engine-banner is-rules';
+        text = '配置建议未调用 Kimi（未配置 KIMI_API_KEY 或已禁用），以下为规则生成建议';
+    } else if (e === 'loading') {
+        cls = 'news-engine-banner is-loading';
+        text = '正在调用 Kimi 生成个性化配置建议…';
+    } else if (e === 'unavailable') {
+        cls = 'news-engine-banner is-unavailable';
+        text = '配置建议接口异常，请稍后重试';
+    }
+    const err = (kimiError && String(kimiError).trim()) ? String(kimiError).trim() : '';
+    const sub = err && (e === 'kimi_failed' || e === 'kimi_disabled')
+        ? `<div class="news-engine-banner-detail">详情：${_escapeHtml(err)}</div>`
+        : '';
+    return `<div class="${cls}" role="status" aria-live="polite">${text}${sub}</div>`;
+}
+
+function renderAllocationAdvice(data, engine, kimiError, adjustedAlloc, baseAlloc) {
+    const bannerEl = document.getElementById('allocAdviceBanner');
+    const tiltEl = document.getElementById('allocTiltNote');
+    const cardEl = document.getElementById('allocAdviceCard');
+    const textEl = document.getElementById('allocAdviceText');
+    const pointsEl = document.getElementById('allocAdvicePoints');
+
+    if (bannerEl) bannerEl.innerHTML = _allocAdviceBanner(engine, kimiError || '');
+
+    // 情绪调仓说明
+    const tiltNote = data && data.tilt_note ? String(data.tilt_note).trim() : '';
+    if (tiltEl) {
+        if (tiltNote) {
+            tiltEl.innerHTML = `<span class="alloc-tilt-icon">⚖</span> 调仓说明：${_escapeHtml(tiltNote)}`;
+            tiltEl.classList.remove('hidden');
+        } else {
+            tiltEl.classList.add('hidden');
+        }
+    }
+
+    // 调整后比例覆盖饼图和明细，并重渲染回测图对比
+    if (adjustedAlloc && adjustedAlloc.length && baseAlloc && baseAlloc.length) {
+        const hasDiff = adjustedAlloc.some((a, i) => a.value !== (baseAlloc[i] || {}).value);
+        if (hasDiff) {
+            renderAllocPie(adjustedAlloc);
+            renderAllocDetails(adjustedAlloc, baseAlloc);
+            // 重渲染回测图：基准 vs 调仓后
+            renderBacktest(baseAlloc, adjustedAlloc);
+        }
+    }
+
+    // loading 状态下不显示文案卡片
+    if (engine === 'loading') {
+        if (cardEl) cardEl.classList.add('hidden');
+        return;
+    }
+
+    const advice = data && data.advice ? String(data.advice).trim() : '';
+    const keyPoints = data && Array.isArray(data.key_points) ? data.key_points : [];
+
+    if ((advice || keyPoints.length) && cardEl) {
+        if (textEl) textEl.textContent = advice;
+        if (pointsEl) {
+            pointsEl.innerHTML = keyPoints.map(p => `<li>${_escapeHtml(String(p))}</li>`).join('');
+        }
+        cardEl.classList.remove('hidden');
+    } else if (cardEl) {
+        cardEl.classList.add('hidden');
+    }
+}
+
+// ==================== 历史回测：配置比例加权模拟 ====================
+
+// 各类资产典型日均收益率（mu）和日波动率（sigma），基于历史统计
+const ASSET_PARAMS = {
+    '股票基金': { mu: 0.10 / 252, sigma: 0.015 },   // 年化10%，日波动1.5%
+    '混合基金': { mu: 0.07 / 252, sigma: 0.010 },   // 年化7%，日波动1.0%
+    '债券基金': { mu: 0.04 / 252, sigma: 0.003 },   // 年化4%，日波动0.3%
+    '货币基金': { mu: 0.025 / 252, sigma: 0.0002 }, // 年化2.5%，近零波动
+    '另类投资': { mu: 0.08 / 252, sigma: 0.012 },   // 年化8%，日波动1.2%
+};
+
+// 与沪深300的相关系数：权益类资产受市场走势影响较大
+const ASSET_MARKET_CORR = {
+    '股票基金': 0.75,
+    '混合基金': 0.50,
+    '债券基金': -0.10,
+    '货币基金': 0.00,
+    '另类投资': 0.30,
+};
+
+// Box-Muller 正态随机数（均值0，标准差1）
+function _boxMullerRand(rng) {
+    let u, v;
+    do { u = rng(); } while (u === 0);
+    do { v = rng(); } while (v === 0);
+    return Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v);
+}
+
+// 轻量级确定性伪随机（mulberry32），使同一画像每次结果相同
+function _makeRng(seed) {
+    let s = seed >>> 0;
+    return function () {
+        s = (s + 0x6d2b79f5) >>> 0;
+        let t = Math.imul(s ^ (s >>> 15), 1 | s);
+        t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) >>> 0;
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+}
+
+// 将画像名映射为整数种子，保证同一画像每次回测曲线一致
+function _profileSeed(allocation) {
+    const key = (allocation || []).map(a => `${a.name}${a.value}`).join('|');
+    let h = 0;
+    for (let i = 0; i < key.length; i++) {
+        h = (Math.imul(31, h) + key.charCodeAt(i)) >>> 0;
+    }
+    return h;
+}
+
+/**
+ * 根据配置比例数组和沪深300每日涨跌幅序列，模拟组合每日累计收益率。
+ * @param {Array} allocation  - [{name, value}, ...]，value 为百分比
+ * @param {Array} mktChanges  - 沪深300每日涨跌幅序列（百分比，如 1.2 表示涨1.2%）
+ * @returns {Array}           - 累计收益率数组（百分比，起点为0）
+ */
+function calcPortfolioReturns(allocation, mktChanges) {
+    const n = mktChanges.length;
+    if (!n || !allocation || !allocation.length) return [];
+
+    const rng = _makeRng(_profileSeed(allocation));
+    const weights = allocation.map(a => ({
+        name: a.name,
+        w: (a.value || 0) / 100,
+        params: ASSET_PARAMS[a.name] || { mu: 0.05 / 252, sigma: 0.008 },
+        corr: ASSET_MARKET_CORR[a.name] !== undefined ? ASSET_MARKET_CORR[a.name] : 0.2,
+    }));
+
+    let cumReturn = 0; // 累计对数收益
+    const result = [];
+
+    for (let i = 0; i < n; i++) {
+        // 沪深300当日收益（转换为小数）
+        const mktR = (mktChanges[i] || 0) / 100;
+        // 市场特有噪声（用于相关性分解）
+        const zMkt = _boxMullerRand(rng);
+        // 组合当日加权收益
+        let dayR = 0;
+        for (const asset of weights) {
+            const { mu, sigma } = asset.params;
+            const corr = asset.corr;
+            // 相关部分 = 市场日收益 × 相关系数，独立部分 = 正态噪声 × sqrt(1 - corr²)
+            const zIdio = _boxMullerRand(rng);
+            const assetR = mu + sigma * (corr * zMkt + Math.sqrt(1 - corr * corr) * zIdio)
+                         + corr * mktR * 0.4; // 加入市场走势联动
+            dayR += asset.w * assetR;
+        }
+        cumReturn += dayR;
+        result.push(+(cumReturn * 100).toFixed(2));
+    }
+    return result;
+}
+
+// 回测图实例缓存，防止重复 init 导致内存泄漏
+let _backtestChart = null;
+
+/**
+ * 渲染历史回测图。
+ * @param {Array}  baseAlloc     - 基准配置比例（必选）
+ * @param {Array}  [adjustedAlloc] - 情绪调仓后比例（可选，有时显示第三条曲线）
+ */
+async function renderBacktest(baseAlloc, adjustedAlloc) {
+    const el = document.getElementById('backtestChart');
+    if (!el) return;
+
+    if (!_backtestChart) {
+        _backtestChart = echarts.init(el);
+        window.addEventListener('resize', () => _backtestChart && _backtestChart.resize());
+    }
+    const chart = _backtestChart;
+
+    // 显示加载状态
+    chart.showLoading({ text: '加载沪深300历史数据…', textColor: '#94a3b8', maskColor: 'rgba(15,23,42,0.6)' });
+
     let dates = [];
     let benchmarkReturns = [];
-    let portfolioReturns = [];
+
     try {
         const data = await getHs300ReturnSeries(365);
         dates = (data.dates || []).map(d => d.slice(5));
@@ -812,60 +1349,133 @@ async function renderBacktest() {
         benchmarkReturns = [];
     }
 
+    // 沪深300无法获取时，用模拟走势兜底
     if (!dates.length || !benchmarkReturns.length) {
         const days = 365;
-        let p = 0;
+        const rng = _makeRng(20240101);
         let b = 0;
         for (let i = 0; i < days; i++) {
             const d = new Date();
             d.setDate(d.getDate() - (days - i));
             dates.push(d.toISOString().slice(5, 10));
-            p += (Math.random() - 0.5) * 1.6;
-            b += (Math.random() - 0.5) * 1.2;
-            portfolioReturns.push(+p.toFixed(2));
+            b += _boxMullerRand(rng) * 0.6;
             benchmarkReturns.push(+b.toFixed(2));
         }
-    } else {
-        let p = 0;
-        for (let i = 0; i < benchmarkReturns.length; i++) {
-            p += ((benchmarkReturns[i] - (benchmarkReturns[i - 1] ?? 0)) * 0.9) + (Math.random() - 0.5) * 0.3;
-            portfolioReturns.push(+p.toFixed(2));
-        }
+    }
+
+    // 沪深300每日涨跌幅（用于相关性联动）
+    const mktChanges = benchmarkReturns.map((v, i) =>
+        i === 0 ? v : v - benchmarkReturns[i - 1]
+    );
+
+    // 计算基准组合收益曲线
+    const effectiveBase = (baseAlloc && baseAlloc.length) ? baseAlloc : [];
+    const portfolioReturns = calcPortfolioReturns(effectiveBase, mktChanges);
+
+    // 判断是否有实质性调仓
+    const hasTilt = adjustedAlloc && adjustedAlloc.length &&
+        adjustedAlloc.some((a, i) => a.value !== (effectiveBase[i] || {}).value);
+    const adjustedReturns = hasTilt ? calcPortfolioReturns(adjustedAlloc, mktChanges) : null;
+
+    chart.hideLoading();
+
+    const legendData = ['AI配置组合', '沪深300'];
+    if (hasTilt) legendData.push('情绪调仓后');
+
+    const series = [
+        {
+            name: 'AI配置组合', type: 'line', data: portfolioReturns, smooth: true, symbol: 'none',
+            lineStyle: { color: '#3b82f6', width: 2 },
+            areaStyle: { color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+                { offset: 0, color: 'rgba(59,130,246,0.18)' }, { offset: 1, color: 'rgba(59,130,246,0)' }
+            ])}
+        },
+        {
+            name: '沪深300', type: 'line', data: benchmarkReturns, smooth: true, symbol: 'none',
+            lineStyle: { color: '#f59e0b', width: 1.5, type: 'dashed' }
+        },
+    ];
+
+    if (hasTilt) {
+        series.push({
+            name: '情绪调仓后', type: 'line', data: adjustedReturns, smooth: true, symbol: 'none',
+            lineStyle: { color: '#10b981', width: 2, type: 'solid' },
+        });
     }
 
     chart.setOption({
         backgroundColor: 'transparent',
-        tooltip: { trigger: 'axis', backgroundColor: '#1a2332', borderColor: '#334155', textStyle: { color: '#e2e8f0', fontSize: 12 }},
-        legend: { data: ['AI配置组合收益率', '沪深300收益率'], textStyle: { color: '#94a3b8' }, top: 0 },
-        grid: { left: 50, right: 20, top: 40, bottom: 30 },
-        xAxis: { type: 'category', data: dates, axisLabel: { color: '#64748b', fontSize: 11 }, axisLine: { lineStyle: { color: '#1e293b' }}},
-        yAxis: { type: 'value', axisLabel: { color: '#64748b', fontSize: 11, formatter: v => `${v.toFixed(0)}%` }, splitLine: { lineStyle: { color: '#1e293b' }}},
-        series: [
-            {
-                name: 'AI配置组合收益率', type: 'line', data: portfolioReturns, smooth: true, symbol: 'none',
-                lineStyle: { color: '#3b82f6', width: 2 },
-                areaStyle: { color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-                    { offset: 0, color: 'rgba(59,130,246,0.2)' }, { offset: 1, color: 'rgba(59,130,246,0)' }
-                ])}
-            },
-            {
-                name: '沪深300收益率', type: 'line', data: benchmarkReturns, smooth: true, symbol: 'none',
-                lineStyle: { color: '#f59e0b', width: 1.5, type: 'dashed' }
+        tooltip: {
+            trigger: 'axis',
+            backgroundColor: '#1a2332',
+            borderColor: '#334155',
+            textStyle: { color: '#e2e8f0', fontSize: 12 },
+            formatter: params => {
+                const date = params[0] ? params[0].axisValue : '';
+                const lines = params.map(p =>
+                    `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${p.color};margin-right:5px"></span>${p.seriesName}：${Number(p.value).toFixed(2)}%`
+                );
+                return `<div style="font-size:12px;color:#94a3b8;margin-bottom:4px">${date}</div>` + lines.join('<br>');
             }
-        ]
-    });
-    window.addEventListener('resize', () => chart.resize());
+        },
+        legend: { data: legendData, textStyle: { color: '#94a3b8', fontSize: 12 }, top: 0 },
+        grid: { left: 52, right: 20, top: 40, bottom: 30 },
+        xAxis: {
+            type: 'category', data: dates,
+            axisLabel: { color: '#64748b', fontSize: 11 },
+            axisLine: { lineStyle: { color: '#1e293b' }},
+        },
+        yAxis: {
+            type: 'value',
+            axisLabel: { color: '#64748b', fontSize: 11, formatter: v => `${v.toFixed(0)}%` },
+            splitLine: { lineStyle: { color: '#1e293b' }},
+        },
+        series,
+    }, true);
 }
 
 // ==================== Stock Screening ====================
+
+let _factorChangedTimer = null;
+
 function updateFactorDisplay() {
     ['Value', 'Growth', 'Quality', 'Momentum', 'Sentiment'].forEach(f => {
         const val = document.getElementById('factor' + f).value;
         document.getElementById('factor' + f + 'Display').textContent = val + '%';
     });
+    // 防抖 toast：权重变更后 0.5s 显示提示
+    clearTimeout(_factorChangedTimer);
+    _factorChangedTimer = setTimeout(() => {
+        _showScreeningToast('权重已调整，点击「运行AI选股模型」更新结果');
+    }, 500);
+}
+
+function _showScreeningToast(msg) {
+    let toast = document.getElementById('screeningToast');
+    if (!toast) {
+        toast = document.createElement('div');
+        toast.id = 'screeningToast';
+        toast.className = 'screening-toast';
+        // 插入到权重区域按钮前
+        const btn = document.querySelector('#page-screening .btn-primary');
+        if (btn && btn.parentNode) btn.parentNode.insertBefore(toast, btn);
+        else document.body.appendChild(toast);
+    }
+    toast.textContent = msg;
+    toast.classList.add('visible');
+    clearTimeout(toast._hideTimer);
+    toast._hideTimer = setTimeout(() => toast.classList.remove('visible'), 2500);
 }
 
 async function runScreening() {
+    const btn = document.querySelector('#page-screening .btn-primary');
+    const origText = btn ? btn.textContent : '';
+    if (btn) { btn.disabled = true; btn.textContent = '选股中…'; }
+
+    // 隐藏 toast
+    const toast = document.getElementById('screeningToast');
+    if (toast) toast.classList.remove('visible');
+
     const weights = {
         value: +document.getElementById('factorValue').value,
         growth: +document.getElementById('factorGrowth').value,
@@ -881,31 +1491,74 @@ async function runScreening() {
             body: JSON.stringify(weights)
         });
         const data = await res.json();
-        renderStockTable(data.stocks);
+        renderStockTable(data.stocks, data.reason_engine, data.reason_kimi_error);
         renderFactorRadar(data.stocks.slice(0, 5));
     } catch (e) {
         console.error('Failed to screen stocks:', e);
+        renderStockTable([], 'unavailable', String(e));
+    } finally {
+        if (btn) { btn.disabled = false; btn.textContent = origText; }
     }
 }
 
-function renderStockTable(stocks) {
-    document.getElementById('stockCount').textContent = stocks.length + '只';
+function _screenReasonBanner(engine, kimiError) {
+    const e = engine || 'rules';
+    let cls = 'news-engine-banner is-rules';
+    let text = 'AI选股理由由规则引擎生成（因子阈值判断）';
+    if (e === 'kimi') {
+        cls = 'news-engine-banner is-kimi';
+        text = 'Top 5 AI选股理由由「Kimi 大模型」根据因子评分 + 行情快照自动生成，第6名起为规则理由';
+    } else if (e === 'kimi_failed') {
+        cls = 'news-engine-banner is-unavailable';
+        text = 'Kimi 生成选股理由失败，以下均为规则理由';
+    } else if (e === 'kimi_disabled') {
+        cls = 'news-engine-banner is-rules';
+        text = '选股理由未调用 Kimi（未配置 KIMI_API_KEY 或已禁用）';
+    } else if (e === 'unavailable') {
+        cls = 'news-engine-banner is-unavailable';
+        text = '选股接口异常，请稍后重试';
+    }
+    const err = (kimiError && String(kimiError).trim()) ? String(kimiError).trim() : '';
+    const sub = err && (e === 'kimi_failed' || e === 'kimi_disabled')
+        ? `<div class="news-engine-banner-detail">详情：${_escapeHtml(err)}</div>`
+        : '';
+    return `<div class="${cls}" role="status" aria-live="polite">${text}${sub}</div>`;
+}
+
+function renderStockTable(stocks, reasonEngine, reasonKimiError) {
+    const bannerEl = document.getElementById('screenReasonBanner');
+    if (bannerEl) bannerEl.innerHTML = _screenReasonBanner(reasonEngine, reasonKimiError || '');
+
+    document.getElementById('stockCount').textContent = (stocks || []).length + '只';
     const tbody = document.getElementById('stockTableBody');
+    if (!stocks || !stocks.length) {
+        tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--text-muted);padding:24px">暂无数据</td></tr>';
+        return;
+    }
     tbody.innerHTML = stocks.map((s, i) => {
         const score = s.scores.total;
         const scoreCls = score >= 65 ? 'score-high' : score >= 50 ? 'score-mid' : 'score-low';
-        const peText = (s.pe === null || s.pe === undefined) ? '--' : s.pe;
+        // PE：若无内置样本对应，值来自行业中位数估算，加 (估) 标注
+        const peIsEstimated = !s.pe_source_exact && i >= 0; // 后端可按需设置 pe_source_exact
+        const peText = (s.pe === null || s.pe === undefined) ? '--'
+            : (s.pe_estimated ? `<span class="pe-estimated">${s.pe}<span class="pe-est-tag">(估)</span></span>` : s.pe);
         const roeText = (s.roe === null || s.roe === undefined) ? '--' : `${s.roe}%`;
+        const isKimiReason = s.ai_reason_engine === 'kimi';
+        const reasonHtml = isKimiReason
+            ? `<span class="ai-reason-text ai-reason-kimi">${_escapeHtml(s.ai_reason)}</span>`
+            : `<span class="ai-reason-text">${_escapeHtml(s.ai_reason)}</span>`;
+        const changeCls = s.change_pct >= 0 ? 'up' : 'down';
+        const changeSign = s.change_pct >= 0 ? '+' : '';
         return `<tr>
             <td><strong>${i + 1}</strong></td>
             <td style="color:var(--text-muted);font-family:monospace">${s.code}</td>
             <td><strong>${s.name}</strong></td>
             <td>${s.industry}</td>
-            <td>¥${s.price.toFixed(2)}</td>
+            <td>¥${s.price.toFixed(2)} <span class="${changeCls}" style="font-size:11px">${changeSign}${s.change_pct.toFixed(2)}%</span></td>
             <td>${peText}</td>
             <td>${roeText}</td>
             <td><span class="score-badge ${scoreCls}">${score.toFixed(1)}</span></td>
-            <td><span class="ai-reason-text">${s.ai_reason}</span></td>
+            <td>${reasonHtml}</td>
         </tr>`;
     }).join('');
 }
@@ -946,17 +1599,75 @@ function renderFactorRadar(top5) {
 }
 
 // ==================== Portfolio ====================
+let currentPortfolioTimeframe = 180;
+
 async function loadPortfolio() {
     try {
-        const res = await fetch('/api/portfolio');
-        const data = await res.json();
-        portfolioRawData = data;
-        holdingsData = loadOrInitMockHoldings(data.holdings || []);
+        const [holdingsRes, historyRes] = await Promise.all([
+            fetch('/api/holdings'),
+            fetch(`/api/portfolio-history?days=${currentPortfolioTimeframe}`),
+        ]);
+        holdingsData = (await holdingsRes.json()) || [];
+        const historyData = await historyRes.json();
+        portfolioRawData = { history: historyData };
         refreshPortfolioByHoldings();
         renderHoldingTabs();
         renderHoldings();
+        // 异步加载各持仓指标（不阻塞主渲染）
+        loadHoldingIndicators();
     } catch (e) {
         console.error('Failed to load portfolio:', e);
+    }
+}
+
+async function loadHoldingIndicators() {
+    if (!holdingsData || !holdingsData.length) return;
+    try {
+        const codes = holdingsData.map(h => ({ code: h.code, name: h.name, asset_type: h.asset_type || '股票', current: h.current, cost: h.cost, shares: h.shares }));
+        const res = await fetch(apiUrl('/api/holding-indicators'), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ holdings: codes })
+        });
+        const data = await parseFetchJson(res);
+        if (data && !data._parseFailed && data.indicators) {
+            holdingIndicators = data.indicators;
+            renderHoldings();
+        }
+    } catch (e) {
+        console.warn('指标加载失败（非致命）:', e);
+    }
+}
+
+async function refreshHoldingIndicators() {
+    const btn = document.querySelector('.btn-sm-ai');
+    if (btn) { btn.textContent = '加载中…'; btn.disabled = true; }
+    holdingIndicators = {};
+    renderHoldings();
+    await loadHoldingIndicators();
+    if (btn) { btn.textContent = '刷新指标'; btn.disabled = false; }
+}
+
+async function switchPortfolioTimeframe(days) {
+    if (currentPortfolioTimeframe === days) return;
+    currentPortfolioTimeframe = days;
+    
+    // 更新UI按钮高亮
+    const btn180 = document.getElementById('btnPortfolio180');
+    const btn365 = document.getElementById('btnPortfolio365');
+    if (btn180) btn180.classList.toggle('active', days === 180);
+    if (btn365) btn365.classList.toggle('active', days === 365);
+    
+    // 只重新请求history数据
+    try {
+        const res = await fetch(`/api/portfolio-history?days=${currentPortfolioTimeframe}`);
+        const historyData = await res.json();
+        if (portfolioRawData) {
+            portfolioRawData.history = historyData;
+            renderPortfolioChart(historyData, holdingsData);
+        }
+    } catch (e) {
+        console.error('Failed to update portfolio history:', e);
     }
 }
 
@@ -996,45 +1707,39 @@ function normalizeHolding(item) {
     const createdAtRaw = item.created_at || item.createdAt || '';
     const createdAt = Number.isNaN(new Date(createdAtRaw).getTime()) ? new Date().toISOString() : new Date(createdAtRaw).toISOString();
     const unit = item.unit || (type === '基金' ? '份' : '股');
-    const profit = (current - cost) * shares;
+    
+    // 如果是后端OCR解析出的带 amount 的，直接用它
+    const amount = item.amount !== undefined ? Number(item.amount) : +(current * shares).toFixed(2);
+    const profit = item.profit !== undefined ? Number(item.profit) : (current - cost) * shares;
     const returnPct = cost > 0 ? ((current - cost) / cost) * 100 : 0;
-    return {
+    
+    const ret = {
         code: (item.code || '').toString().trim(),
         name: (item.name || '').toString().trim(),
         asset_type: type,
-        shares: Math.round(shares),
+        shares: shares, // 基金份额可能有小数，不粗暴round
         unit,
         created_at: createdAt,
-        cost: +cost.toFixed(2),
-        current: +current.toFixed(2),
-        market_value: +(current * shares).toFixed(2),
+        cost: +cost.toFixed(4),
+        current: +current.toFixed(4),
+        amount: amount,
+        market_value: amount,
         profit: +profit.toFixed(2),
         return_pct: +returnPct.toFixed(2)
     };
+    if (item.input_amount !== undefined) ret.input_amount = item.input_amount;
+    if (item.input_profit !== undefined) ret.input_profit = item.input_profit;
+    if (item.needs_share_calc !== undefined) ret.needs_share_calc = item.needs_share_calc;
+    return ret;
 }
 
 function saveMockHoldings() {
-    try {
-        localStorage.setItem(HOLDINGS_STORAGE_KEY, JSON.stringify(holdingsData || []));
-    } catch (e) {
-        console.warn('Failed to save holdings:', e);
-    }
+    // 持仓现已持久化到服务端，此函数保留为空（兼容老调用点）
 }
 
 function loadOrInitMockHoldings(defaultHoldings) {
-    try {
-        const raw = localStorage.getItem(HOLDINGS_STORAGE_KEY);
-        if (raw) {
-            const parsed = JSON.parse(raw);
-            if (Array.isArray(parsed)) return parsed.map(normalizeHolding);
-        }
-    } catch (e) {
-        console.warn('Failed to load holdings:', e);
-    }
-    const initial = (defaultHoldings || []).map(normalizeHolding);
-    holdingsData = initial;
-    saveMockHoldings();
-    return initial;
+    // 持仓从服务端加载，此函数仅作兼容保留
+    return (defaultHoldings || []).map(normalizeHolding);
 }
 
 function inferIndustryByHolding(h) {
@@ -1163,17 +1868,168 @@ function computeRebalanceAlertsFromHoldings(holdings) {
     return alerts.slice(0, 3);
 }
 
+function getHoldingsFingerprint() {
+    const list = (holdingsData || []).slice().sort((a, b) => String(a.code || '').localeCompare(String(b.code || '')));
+    return list.map(h =>
+        `${h.code}|${Math.round(Number(h.market_value || h.amount || 0))}|${Number(h.return_pct || 0).toFixed(2)}`
+    ).join(';');
+}
+
+function schedulePortfolioKimiRebalanceFetch() {
+    clearTimeout(_portfolioKimiDebounceTimer);
+    if (!holdingsData || !holdingsData.length) {
+        portfolioKimiRebalance = { loading: false, error: '', text: '', hash: '', macroSnapshot: '' };
+        renderPortfolioRebalancePanel();
+        return;
+    }
+    _portfolioKimiDebounceTimer = setTimeout(() => {
+        fetchPortfolioKimiRebalanceAdvice(false);
+    }, 650);
+}
+
+async function fetchPortfolioKimiRebalanceAdvice(force) {
+    if (!holdingsData || !holdingsData.length) return;
+    if (portfolioKimiRebalance.loading && !force) return;
+    const fp = getHoldingsFingerprint();
+    if (!force && portfolioKimiRebalance.text && portfolioKimiRebalance.hash === fp) return;
+
+    portfolioKimiRebalance.loading = true;
+    portfolioKimiRebalance.error = '';
+    renderPortfolioRebalancePanel();
+
+    const totalCost = holdingsData.reduce((sum, h) => sum + (Number(h.shares) || 0) * (Number(h.cost) || 0), 0);
+    const totalCurrent = holdingsData.reduce((sum, h) => sum + (Number(h.shares) || 0) * (Number(h.current) || 0), 0);
+    const totalReturn = totalCost > 0 ? ((totalCurrent - totalCost) / totalCost) * 100 : 0;
+    const industry = computeIndustryDistributionFromHoldings(holdingsData);
+    const payload = {
+        holdings: holdingsData.map(h => ({
+            code: h.code,
+            name: h.name,
+            asset_type: h.asset_type || '股票',
+            market_value: Number(h.market_value) || (Number(h.shares) * Number(h.current)) || 0,
+            return_pct: Number(h.return_pct) || 0,
+            shares: Number(h.shares) || 0,
+            cost: Number(h.cost) || 0,
+            current: Number(h.current) || 0,
+        })),
+        total_return_pct: totalReturn,
+        total_value: totalCurrent,
+        industry_distribution: industry,
+    };
+    try {
+        const urls = [
+            apiUrl('/api/kimi/rebalance'),
+            apiUrl('/api/kimi-portfolio-rebalance'),
+        ];
+        let data = null;
+        let lastMsg = '';
+        for (let i = 0; i < urls.length; i++) {
+            const res = await fetch(urls[i], {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+            });
+            data = await parseFetchJson(res);
+            if (!data._parseFailed) {
+                break;
+            }
+            lastMsg = data._message || '响应解析失败';
+            if (data._httpStatus !== 404) {
+                break;
+            }
+        }
+        if (!data || data._parseFailed) {
+            portfolioKimiRebalance.error = lastMsg || (data && data._message) || '响应解析失败';
+            portfolioKimiRebalance.text = '';
+            portfolioKimiRebalance.macroSnapshot = '';
+        } else if (!data.ok) {
+            portfolioKimiRebalance.error = data.error || '生成失败';
+            portfolioKimiRebalance.text = '';
+            portfolioKimiRebalance.macroSnapshot = '';
+        } else {
+            portfolioKimiRebalance.text = data.analysis || '';
+            portfolioKimiRebalance.macroSnapshot = data.macro_snapshot || '';
+            portfolioKimiRebalance.hash = fp;
+            portfolioKimiRebalance.error = '';
+        }
+    } catch (e) {
+        portfolioKimiRebalance.error = e.message || '网络错误';
+        portfolioKimiRebalance.text = '';
+        portfolioKimiRebalance.macroSnapshot = '';
+    } finally {
+        portfolioKimiRebalance.loading = false;
+        renderPortfolioRebalancePanel();
+    }
+}
+
+function renderPortfolioRebalancePanel() {
+    const host = document.getElementById('rebalanceAlerts');
+    if (!host) return;
+    const rules = computeRebalanceAlertsFromHoldings(holdingsData);
+    const icons = { warning: '⚠️', info: 'ℹ️', success: '✅' };
+    const rulesHtml = rules.map(a =>
+        `<div class="alert-item ${a.type}">
+            <span class="alert-icon">${icons[a.type]}</span>
+            <span>${a.message}</span>
+        </div>`
+    ).join('');
+
+    let kimiWrap = '';
+    if (!holdingsData || !holdingsData.length) {
+        kimiWrap = `<div class="rebalance-kimi-placeholder muted" style="font-size:13px;line-height:1.6">添加持仓后，可结合 A 股主要指数快照与行业分布，由 Kimi 生成整体调仓思路。</div>`;
+    } else {
+        const dis = portfolioKimiRebalance.loading ? 'disabled' : '';
+        const btnLabel = portfolioKimiRebalance.loading ? 'Kimi 分析中…' : '刷新 Kimi 建议';
+        const toolbar = `<div class="rebalance-kimi-toolbar">
+            <button type="button" class="btn-sm btn-sm-ai" ${dis} onclick="fetchPortfolioKimiRebalanceAdvice(true)">${btnLabel}</button>
+            <span class="rebalance-kimi-hint">持仓结构 + 行业分布 + 指数宏观快照</span>
+        </div>`;
+
+        let main = '';
+        if (portfolioKimiRebalance.loading && !portfolioKimiRebalance.text) {
+            main = `<div class="rebalance-kimi-loading">
+                <div class="typing-indicator"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></div>
+                <span class="muted" style="font-size:12px;margin-top:8px">正在调用 Kimi 分析组合与宏观环境（约 15–40 秒）…</span>
+            </div>`;
+        } else if (portfolioKimiRebalance.error && !portfolioKimiRebalance.text) {
+            main = `<div class="rebalance-kimi-error">Kimi：${escapeHtml(portfolioKimiRebalance.error)}</div>
+                <p class="muted" style="font-size:12px;margin-top:8px">若为 401/密钥或模型不可用，请核对项目根目录 .env 后<strong>重启 Flask</strong>；终端里误 export 的空密钥也会生效，可先执行 <code>unset KIMI_API_KEY MOONSHOT_API_KEY</code> 再启动。</p>
+                <button type="button" class="btn-secondary btn-sm" style="margin-top:8px" onclick="fetchPortfolioKimiRebalanceAdvice(true)">重试</button>`;
+        } else if (portfolioKimiRebalance.text) {
+            const topNote = portfolioKimiRebalance.loading
+                ? `<div class="muted" style="font-size:12px;margin-bottom:8px">正在刷新 Kimi 建议…</div>`
+                : '';
+            const formatted = formatMarkdown(escapeHtml(portfolioKimiRebalance.text));
+            const macroBlock = portfolioKimiRebalance.macroSnapshot
+                ? `<details class="rebalance-macro-details"><summary>本次参考的指数快照</summary>
+                    <pre class="rebalance-macro-pre">${escapeHtml(String(portfolioKimiRebalance.macroSnapshot).slice(0, 1200))}</pre></details>`
+                : '';
+            main = `${topNote}<div class="rebalance-kimi-body ${portfolioKimiRebalance.loading ? 'rebalance-kimi-body-dim' : ''}">${formatted}</div>
+                ${macroBlock}
+                <div class="kimi-disclaimer" style="margin-top:10px">以上内容由 Kimi AI 生成，仅供参考，不构成投资建议。</div>`;
+        } else {
+            main = `<p class="muted" style="font-size:13px;line-height:1.65;margin-bottom:12px">
+                将依据您的<strong>持仓与收益</strong>、<strong>行业分布</strong>，以及<strong>上证 / 深证 / 创业板 / 沪深300</strong>等指数最新涨跌快照，生成加减仓与再平衡思路（需配置 Kimi API）。</p>
+                <button type="button" class="btn-primary btn-sm" onclick="fetchPortfolioKimiRebalanceAdvice(true)">生成 AI 调仓建议</button>`;
+        }
+        kimiWrap = `${toolbar}${main}`;
+    }
+
+    host.innerHTML = `
+        <div class="rebalance-kimi-wrap">${kimiWrap}</div>
+        <div class="rebalance-local-sep"><span>本地规则参考</span></div>
+        <div class="rebalance-alerts-rules">${rulesHtml}</div>
+    `;
+}
+
 function refreshPortfolioByHoldings() {
-    if (!portfolioRawData) return;
     const totalCost = holdingsData.reduce((sum, h) => sum + h.shares * h.cost, 0);
     const totalCurrent = holdingsData.reduce((sum, h) => sum + h.shares * h.current, 0);
     const totalProfit = totalCurrent - totalCost;
     const totalReturn = totalCost > 0 ? (totalProfit / totalCost) * 100 : 0;
     const riskMetrics = computeRiskMetricsFromHoldings(holdingsData);
     const industryDistribution = computeIndustryDistributionFromHoldings(holdingsData);
-    const rebalanceAlerts = computeRebalanceAlertsFromHoldings(holdingsData);
     renderPortfolioSummary({
-        ...portfolioRawData,
         holdings: holdingsData,
         total_cost: totalCost,
         total_value: totalCurrent,
@@ -1181,10 +2037,12 @@ function refreshPortfolioByHoldings() {
         total_return: totalReturn,
         risk_metrics: riskMetrics
     });
-    renderPortfolioChart(portfolioRawData.history || [], holdingsData);
+    const historyData = portfolioRawData && portfolioRawData.history ? portfolioRawData.history : null;
+    renderPortfolioChart(historyData, holdingsData);
     renderRiskMetrics(riskMetrics);
     renderIndustryPie(industryDistribution);
-    renderRebalanceAlerts(rebalanceAlerts);
+    renderPortfolioRebalancePanel();
+    schedulePortfolioKimiRebalanceFetch();
 }
 
 function buildDynamicPortfolioReturnSeries(history, holdings, hs300Series = null) {
@@ -1287,35 +2145,97 @@ function buildDynamicPortfolioReturnSeries(history, holdings, hs300Series = null
     return { dates: useDates, portfolioReturns, benchmarkReturns };
 }
 
-function renderPortfolioChart(history, holdings) {
-    const chart = echarts.init(document.getElementById('portfolioChart'));
-    const render = (dates, portfolioReturns, benchmarkReturns) => chart.setOption({
-        backgroundColor: 'transparent',
-        tooltip: { trigger: 'axis', backgroundColor: '#1a2332', borderColor: '#334155', textStyle: { color: '#e2e8f0', fontSize: 12 }},
-        legend: { data: ['我的组合收益率', '沪深300收益率'], textStyle: { color: '#94a3b8' }},
-        grid: { left: 60, right: 20, top: 40, bottom: 30 },
-        xAxis: { type: 'category', data: dates, axisLabel: { color: '#64748b', fontSize: 11 }, axisLine: { lineStyle: { color: '#1e293b' }}},
-        yAxis: { type: 'value', axisLabel: { color: '#64748b', fontSize: 11, formatter: v => `${v}%` }, splitLine: { lineStyle: { color: '#1e293b' }}},
-        series: [
-            {
-                name: '我的组合收益率', type: 'line', data: portfolioReturns, smooth: true, symbol: 'none',
-                lineStyle: { color: '#3b82f6', width: 2 },
-                areaStyle: { color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-                    { offset: 0, color: 'rgba(59,130,246,0.15)' }, { offset: 1, color: 'rgba(59,130,246,0)' }
-                ])}
-            },
-            { name: '沪深300收益率', type: 'line', data: benchmarkReturns, smooth: true, symbol: 'none', lineStyle: { color: '#f59e0b', width: 1.5, type: 'dashed' }}
-        ]
-    });
-    const fallbackSeries = buildDynamicPortfolioReturnSeries(history, holdings);
-    render(fallbackSeries.dates, fallbackSeries.portfolioReturns, fallbackSeries.benchmarkReturns);
+function renderPortfolioChart(historyData, holdings) {
+    const chartEl = document.getElementById('portfolioChart');
+    if (!chartEl) return;
+    let chart = echarts.getInstanceByDom(chartEl) || echarts.init(chartEl);
 
-    getHs300ReturnSeries(Math.max(180, Array.isArray(history) ? history.length : 180))
-        .then(hs300 => {
-            const latestSeries = buildDynamicPortfolioReturnSeries(history, holdings, hs300);
-            render(latestSeries.dates, latestSeries.portfolioReturns, latestSeries.benchmarkReturns);
-        })
-        .catch(() => {});
+    const doRender = (dates, portfolioReturns, benchmarkReturns, startDate) => {
+        const hasData = dates && dates.length > 1;
+        const startLabel = startDate ? `（自 ${startDate} 起）` : '';
+        chart.setOption({
+            backgroundColor: 'transparent',
+            tooltip: {
+                trigger: 'axis',
+                backgroundColor: '#1a2332',
+                borderColor: '#334155',
+                textStyle: { color: '#e2e8f0', fontSize: 12 },
+                formatter: params => {
+                    const d = params[0] && params[0].axisValue || '';
+                    let s = `<div style="font-weight:600;margin-bottom:4px">${d}</div>`;
+                    params.forEach(p => {
+                        const color = p.color || '#fff';
+                        const val = typeof p.value === 'number' ? (p.value >= 0 ? `+${p.value.toFixed(2)}%` : `${p.value.toFixed(2)}%`) : '--';
+                        s += `<div style="display:flex;align-items:center;gap:6px"><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${color}"></span>${p.seriesName}: ${val}</div>`;
+                    });
+                    return s;
+                }
+            },
+            legend: { data: ['我的组合收益率', '沪深300收益率'], textStyle: { color: '#94a3b8' } },
+            grid: { left: 60, right: 20, top: 40, bottom: 30 },
+            xAxis: {
+                type: 'category',
+                data: hasData ? dates : ['--'],
+                axisLabel: { color: '#64748b', fontSize: 11 },
+                axisLine: { lineStyle: { color: '#1e293b' } }
+            },
+            yAxis: {
+                type: 'value',
+                axisLabel: { color: '#64748b', fontSize: 11, formatter: v => `${v}%` },
+                splitLine: { lineStyle: { color: '#1e293b' } }
+            },
+            graphic: hasData ? [] : [{
+                type: 'text',
+                left: 'center', top: 'middle',
+                style: { text: '暂无持仓数据，添加持仓后自动生成收益率曲线', fill: '#64748b', fontSize: 13 }
+            }],
+            series: [
+                {
+                    name: '我的组合收益率', type: 'line',
+                    data: hasData ? portfolioReturns : [],
+                    smooth: true, symbol: 'none',
+                    lineStyle: { color: '#3b82f6', width: 2 },
+                    areaStyle: {
+                        color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+                            { offset: 0, color: 'rgba(59,130,246,0.18)' },
+                            { offset: 1, color: 'rgba(59,130,246,0)' }
+                        ])
+                    }
+                },
+                {
+                    name: '沪深300收益率', type: 'line',
+                    data: hasData ? benchmarkReturns : [],
+                    smooth: true, symbol: 'none',
+                    lineStyle: { color: '#f59e0b', width: 1.5, type: 'dashed' }
+                }
+            ]
+        });
+        // 更新图表标题说明
+        const titleEl = chartEl.closest('.card') && chartEl.closest('.card').querySelector('h3');
+        if (titleEl) titleEl.textContent = `收益率曲线（我的组合 vs 沪深300）${startLabel}`;
+    };
+
+    // 直接使用服务端已计算好的数据（从最早买入日期起算）
+    if (historyData && historyData.dates && historyData.dates.length > 1) {
+        const dates = historyData.dates.map(d => String(d).slice(5));
+        doRender(dates, historyData.portfolio_returns, historyData.benchmark_returns, historyData.start_date);
+    } else if (!holdings || !holdings.length) {
+        doRender([], [], [], null);
+    } else {
+        // 有持仓但还没有服务端数据，显示加载占位
+        doRender([], [], [], null);
+        // 重新拉取
+        fetch(`/api/portfolio-history?days=${currentPortfolioTimeframe}`)
+            .then(r => r.json())
+            .then(d => {
+                if (d && d.dates && d.dates.length > 1) {
+                    const dates = d.dates.map(dt => String(dt).slice(5));
+                    doRender(dates, d.portfolio_returns, d.benchmark_returns, d.start_date);
+                    if (portfolioRawData) portfolioRawData.history = d;
+                }
+            })
+            .catch(() => {});
+    }
     window.addEventListener('resize', () => chart.resize());
 }
 
@@ -1335,28 +2255,45 @@ function switchHoldingTab(tab) {
     updateAddHoldingModalByTab();
 }
 
-function renderHoldingsTableHeader() {
+function renderHoldingsTableHeader(filteredHoldings = []) {
     const row = document.getElementById('holdingsTableHeadRow');
     if (!row) return;
+    
+    let dateStr = "";
+    if (filteredHoldings && filteredHoldings.length > 0) {
+        const dates = filteredHoldings.map(h => h.date).filter(d => d);
+        if (dates.length > 0) {
+            dateStr = `<br><span style="font-size:10px;font-weight:normal;color:var(--text-muted)">${dates[0]}</span>`;
+        }
+    }
+    
+    const isFund = currentHoldingTab === 'fund';
     row.innerHTML = `
         <th>名称</th>
         <th>类型</th>
         <th>持有金额</th>
-        <th>持有收益</th>
-        <th>收益率</th>
+        <th>当日收益/率${dateStr}</th>
+        <th>持有收益/率</th>
+        <th class="th-indicator" title="${isFund ? '净值相对近60日区间的分位，越低越便宜' : 'PE/PB所处历史区间，越低越便宜'}">估值百分位</th>
+        <th class="th-indicator" title="${isFund ? '从买入至今（最多1年）的区间收益率' : '近一年净利润增速（归母）'}">${isFund ? '近1年收益率' : '盈利增速'}</th>
+        <th class="th-indicator" title="${isFund ? '净值从高点的最大跌幅（近1年），越小越稳' : '近5日平均换手率，衡量活跃程度'}">${isFund ? '近1年最大回撤' : '换手率'}</th>
+        <th class="th-indicator" title="净值/价格相对20日均线的偏离程度，正值偏高、负值偏低">偏离度(20日)</th>
         <th class="holdings-op-head">操作</th>`;
 }
 
 function fundHoldingCostAmount(h) {
-    return +(h.shares * h.cost).toFixed(2);
+    if (h.amount !== undefined && h.amount !== null) return h.amount;
+    if (h.market_value !== undefined && h.market_value !== null) return h.market_value;
+    return +(h.shares * h.current || h.shares * h.cost).toFixed(2);
 }
 
 function renderHoldings() {
-    renderHoldingsTableHeader();
     const filtered = (holdingsData || []).filter(h => {
         const type = h.asset_type || '股票';
         return currentHoldingTab === 'fund' ? type === '基金' : type === '股票';
     });
+    
+    renderHoldingsTableHeader(filtered);
 
     const totalPages = Math.max(1, Math.ceil(filtered.length / HOLDINGS_PAGE_SIZE));
     if (currentHoldingPage > totalPages) currentHoldingPage = totalPages;
@@ -1380,18 +2317,89 @@ function renderHoldings() {
         const amount = fundHoldingCostAmount(h);
         const codeEsc = String(h.code || '').replace(/'/g, "\\'");
         const typeEsc = String(type).replace(/'/g, "\\'");
+        const nameEsc = String(h.name || '').replace(/'/g, "\\'").replace(/"/g, '&quot;');
         const opBtns = `<td class="holdings-op-cell">
             <div class="holdings-op-group">
+                <button type="button" class="table-action-btn table-kimi-btn" onclick="openKimiValuation('${codeEsc}','${nameEsc}','${typeEsc}')">K·估值</button>
                 <button type="button" class="table-action-btn" onclick="openEditHoldingModal('${codeEsc}', '${typeEsc}')">编辑</button>
                 <button type="button" class="table-danger-btn" onclick="deleteHolding('${codeEsc}', '${typeEsc}')">删除</button>
             </div>
         </td>`;
+        const dailyProfit = h.daily_profit || 0;
+        const dailyReturnPct = h.daily_return_pct || 0;
+        const dailyCls = dailyProfit >= 0 ? 'up' : 'down';
+
+        // 指标数据（从 holdingIndicators 缓存中取）
+        const ind = (holdingIndicators && holdingIndicators[h.code]) || {};
+        const isFundRow = (h.asset_type || '股票') === '基金';
+
+        // ── 估值百分位（股票/基金通用）──
+        let valHtml = '<span class="ind-na">--</span>';
+        if (ind.valuation_pct != null) {
+            const v = Number(ind.valuation_pct);
+            const vColor = v <= 30 ? '#10b981' : v <= 60 ? '#f59e0b' : '#ef4444';
+            const vLabel = v <= 30 ? '低估' : v <= 60 ? '适中' : '高估';
+            valHtml = `<span class="ind-badge" style="color:${vColor}">${v.toFixed(0)}%<br><span class="ind-sub">${vLabel}</span></span>`;
+        }
+
+        // ── 第二列：股票=盈利增速，基金=近1年收益率 ──
+        let col2Html = '<span class="ind-na">--</span>';
+        if (isFundRow) {
+            if (ind.return_1y != null) {
+                const r = Number(ind.return_1y);
+                const rColor = r >= 10 ? '#10b981' : r >= 0 ? '#f59e0b' : '#ef4444';
+                col2Html = `<span class="ind-badge" style="color:${rColor}">${r >= 0 ? '+' : ''}${r.toFixed(2)}%</span>`;
+            }
+        } else {
+            if (ind.profit_growth != null) {
+                const g = Number(ind.profit_growth);
+                const gColor = g >= 20 ? '#10b981' : g >= 0 ? '#f59e0b' : '#ef4444';
+                col2Html = `<span class="ind-badge" style="color:${gColor}">${g >= 0 ? '+' : ''}${g.toFixed(1)}%</span>`;
+            }
+        }
+
+        // ── 第三列：股票=换手率，基金=近1年最大回撤 ──
+        let col3Html = '<span class="ind-na">--</span>';
+        if (isFundRow) {
+            if (ind.max_drawdown != null) {
+                const dd = Number(ind.max_drawdown);
+                const ddColor = dd >= -10 ? '#10b981' : dd >= -20 ? '#f59e0b' : '#ef4444';
+                const ddLabel = dd >= -10 ? '稳健' : dd >= -20 ? '一般' : '波动大';
+                col3Html = `<span class="ind-badge" style="color:${ddColor}">${dd.toFixed(2)}%<br><span class="ind-sub">${ddLabel}</span></span>`;
+            }
+        } else {
+            if (ind.turnover != null) {
+                const t = Number(ind.turnover);
+                const tColor = t > 5 ? '#10b981' : t > 1 ? '#f59e0b' : '#64748b';
+                col3Html = `<span class="ind-badge" style="color:${tColor}">${t.toFixed(3)}%</span>`;
+            }
+        }
+
+        // ── 偏离度（20日均线，通用）──
+        let devHtml = '<span class="ind-na">--</span>';
+        if (ind.deviation != null) {
+            const d = Number(ind.deviation);
+            const dColor = d > 5 ? '#ef4444' : d > 0 ? '#10b981' : d > -5 ? '#f59e0b' : '#ef4444';
+            const dLabel = d > 5 ? '超买' : d > 0 ? '偏高' : d > -5 ? '偏低' : '超卖';
+            devHtml = `<span class="ind-badge" style="color:${dColor}">${d >= 0 ? '+' : ''}${d.toFixed(2)}%<br><span class="ind-sub">${dLabel}</span></span>`;
+        }
+        
         return `<tr>
             <td><strong>${h.name}</strong><br><span style="color:var(--text-muted);font-size:11px">${h.code}</span></td>
             <td><span class="holding-type-tag ${typeClass}">${type}</span></td>
             <td>¥${amount.toFixed(2)}</td>
-            <td class="${cls}">${h.profit >= 0 ? '+' : ''}${h.profit.toFixed(2)}</td>
-            <td class="${cls}">${h.return_pct >= 0 ? '+' : ''}${h.return_pct.toFixed(2)}%</td>
+            <td>
+                <span class="${dailyCls}">${dailyProfit >= 0 ? '+' : ''}${dailyProfit.toFixed(2)}</span><br>
+                <span class="${dailyCls}" style="font-size:11px">${dailyReturnPct >= 0 ? '+' : ''}${dailyReturnPct.toFixed(2)}%</span>
+            </td>
+            <td>
+                <span class="${cls}">${h.profit >= 0 ? '+' : ''}${h.profit.toFixed(2)}</span><br>
+                <span class="${cls}" style="font-size:11px">${h.return_pct >= 0 ? '+' : ''}${h.return_pct.toFixed(2)}%</span>
+            </td>
+            <td class="td-indicator">${valHtml}</td>
+            <td class="td-indicator">${col2Html}</td>
+            <td class="td-indicator">${col3Html}</td>
+            <td class="td-indicator">${devHtml}</td>
             ${opBtns}
         </tr>`;
     }).join('');
@@ -1460,7 +2468,7 @@ function closeAddHoldingModal() {
     selectedAddAsset = null;
 }
 
-function submitAddHolding() {
+async function submitAddHolding() {
     const keyword = document.getElementById('addFundKeyword').value.trim();
     const amount = Number(document.getElementById('addAmount').value);
     const profit = Number(document.getElementById('addProfit').value);
@@ -1475,10 +2483,7 @@ function submitAddHolding() {
         const codeMatch = keyword.match(/\b(\d{6})\b/);
         if (codeMatch) {
             const code = codeMatch[1];
-            const rawName = keyword
-                .replace(codeMatch[0], '')
-                .replace(/[()（）]/g, '')
-                .trim();
+            const rawName = keyword.replace(codeMatch[0], '').replace(/[()（）]/g, '').trim();
             selectedAddAsset = {
                 code,
                 name: rawName || `${typeText}${code}`,
@@ -1490,43 +2495,51 @@ function submitAddHolding() {
         }
     }
 
-    const asset = {
-        code: selectedAddAsset.code,
-        name: selectedAddAsset.name,
-        asset_type: selectedAddAsset.asset_type || (currentHoldingTab === 'fund' ? '基金' : '股票')
-    };
-    const currentValue = amount + profit;
+    const assetType = selectedAddAsset.asset_type === '股票' ? '股票' : '基金';
+    // 这里的 amount 是用户输入的持有金额（市值）
+    const currentValue = amount;
     if (currentValue <= 0) {
-        alert('持有金额 + 持有收益 必须大于 0。');
+        alert('持有金额 必须大于 0。');
         return;
     }
-    const currentPrice = 1;
-    const shares = Math.max(1, Math.round(currentValue / currentPrice));
-    const costPrice = amount / shares;
+    const costValue = currentValue - profit;
 
-    const assetType = asset.asset_type === '股票' ? '股票' : '基金';
-    const unit = assetType === '基金' ? '份' : '股';
-    const exists = holdingsData.some(h => h.code === asset.code && h.asset_type === assetType);
-    if (exists) {
-        alert('该资产已存在，请先删除后再添加。');
-        return;
+    // 构建持仓数据（临时虚拟份额，后端会自动用真实净值覆盖）
+    const shares = costValue > 0 ? costValue : amount;
+    const costPrice = 1.0;
+    const currentPrice = shares > 0 ? currentValue / shares : 1.0;
+
+    try {
+        const res = await fetch('/api/holdings', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                code: selectedAddAsset.code,
+                name: selectedAddAsset.name,
+                asset_type: assetType,
+                shares,
+                unit: assetType === '基金' ? '份' : '股',
+                cost: costPrice,
+                current: currentPrice,
+                amount,
+                profit,
+                created_at: new Date().toISOString().slice(0, 10),
+            })
+        });
+        const result = await res.json();
+        if (!result.ok) {
+            alert(result.message || '添加失败');
+            return;
+        }
+        // 重新从服务端加载完整数据（包括历史曲线）
+        await loadPortfolio();
+        currentHoldingTab = assetType === '基金' ? 'fund' : 'stock';
+        renderHoldingTabs();
+        renderHoldings();
+        closeAddHoldingModal();
+    } catch (e) {
+        alert('添加失败，请稍后重试：' + e.message);
     }
-
-    holdingsData.push(normalizeHolding({
-        code: asset.code,
-        name: asset.name,
-        asset_type: assetType,
-        shares,
-        unit,
-        cost: costPrice,
-        current: currentPrice
-    }));
-    saveMockHoldings();
-    refreshPortfolioByHoldings();
-    currentHoldingTab = assetType === '基金' ? 'fund' : 'stock';
-    renderHoldingTabs();
-    renderHoldings();
-    closeAddHoldingModal();
 }
 
 let fundSuggestTimer = null;
@@ -1780,25 +2793,32 @@ function renderImportPreviewTable() {
     renderImportPreviewSummary();
 }
 
-function confirmImportPreview() {
+async function confirmImportPreview() {
     const selectedItems = pendingOcrImportItems.filter(x => x.selected).map(x => x.item);
     if (!selectedItems.length) {
         alert('请至少勾选一条识别结果再导入。');
         return;
     }
-    let added = 0;
-    let updated = 0;
-    selectedItems.forEach(item => {
-        const merged = upsertHolding(item);
-        if (merged === 'added') added += 1;
-        if (merged === 'updated') updated += 1;
-    });
-    saveMockHoldings();
-    refreshPortfolioByHoldings();
+    let added = 0, skipped = 0;
+    for (const item of selectedItems) {
+        try {
+            const res = await fetch('/api/holdings', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ ...item, created_at: new Date().toISOString().slice(0, 10) })
+            });
+            const result = await res.json();
+            if (result.ok) added++;
+            else skipped++;  // 可能已存在
+        } catch (e) {
+            skipped++;
+        }
+    }
+    await loadPortfolio();
     renderHoldings();
-    const skipped = pendingOcrImportItems.length - selectedItems.length;
+    const ignoredCount = pendingOcrImportItems.length - selectedItems.length;
     closeImportPreviewModal();
-    alert(`截图OCR导入完成：新增 ${added} 条，合并 ${updated} 条${skipped > 0 ? `，忽略 ${skipped} 条` : ''}。`);
+    alert(`截图OCR导入完成：新增 ${added} 条${skipped > 0 ? `，跳过 ${skipped} 条（已存在或失败）` : ''}${ignoredCount > 0 ? `，忽略 ${ignoredCount} 条` : ''}。`);
 }
 
 function mockParseHoldingsFromScreenshot(fileName) {
@@ -1886,14 +2906,21 @@ function shuffle(arr) {
     return copy;
 }
 
-function deleteHolding(code, assetType) {
+async function deleteHolding(code, assetType) {
     const target = holdingsData.find(h => h.code === code && h.asset_type === assetType);
     if (!target) return;
     if (!confirm(`确认删除持仓：${target.name}（${target.code}）？`)) return;
-    holdingsData = holdingsData.filter(h => !(h.code === code && h.asset_type === assetType));
-    saveMockHoldings();
-    refreshPortfolioByHoldings();
-    renderHoldings();
+    try {
+        const res = await fetch(`/api/holdings/${code}?asset_type=${encodeURIComponent(assetType)}`, {
+            method: 'DELETE'
+        });
+        const result = await res.json();
+        if (!result.ok) { alert(result.message || '删除失败'); return; }
+        await loadPortfolio();
+        renderHoldings();
+    } catch (e) {
+        alert('删除失败：' + e.message);
+    }
 }
 
 function openEditHoldingModal(code, assetType) {
@@ -1926,12 +2953,13 @@ function closeEditHoldingModal() {
     if (modal) modal.classList.add('hidden');
 }
 
-function submitEditHolding() {
+async function submitEditHolding() {
     const code = document.getElementById('editHoldingCode').value;
     const assetType = document.getElementById('editHoldingAssetType').value;
-    const idx = holdingsData.findIndex(h => h.code === code && h.asset_type === assetType);
-    if (idx < 0) return;
-    const prev = holdingsData[idx];
+    const prev = holdingsData.find(h => h.code === code && h.asset_type === assetType);
+    if (!prev) return;
+
+    let payload = { asset_type: assetType };
 
     if (assetType === '基金') {
         const amount = Number(document.getElementById('editFundAmount').value);
@@ -1940,23 +2968,14 @@ function submitEditHolding() {
             alert('请填写有效的持有金额与持有收益。');
             return;
         }
-        const currentValue = amount + profit;
-        if (currentValue <= 0) {
-            alert('持有金额 + 持有收益 必须大于 0。');
-            return;
-        }
-        const currentPrice = 1;
-        const shares = Math.max(1, Math.round(currentValue / currentPrice));
-        const costPrice = amount / shares;
-        holdingsData[idx] = normalizeHolding({
-            code: prev.code,
-            name: prev.name,
-            asset_type: '基金',
-            shares,
-            unit: '份',
-            cost: costPrice,
-            current: currentPrice
-        });
+        const currentValue = amount;
+        if (currentValue <= 0) { alert('持有金额 必须大于 0。'); return; }
+        const costValue = currentValue - profit;
+        
+        const shares = costValue > 0 ? costValue : amount;
+        const costPrice = 1.0;
+        const currentPrice = shares > 0 ? currentValue / shares : 1.0;
+        payload = { ...payload, shares, unit: '份', cost: costPrice, current: currentPrice, amount, profit };
     } else {
         const shares = Math.round(Number(document.getElementById('editStockShares').value));
         const cost = Number(document.getElementById('editStockCost').value);
@@ -1965,23 +2984,28 @@ function submitEditHolding() {
             alert('请填写有效的持仓数量、成本价与现价。');
             return;
         }
-        holdingsData[idx] = normalizeHolding({
-            code: prev.code,
-            name: prev.name,
-            asset_type: '股票',
-            shares,
-            unit: prev.unit || '股',
-            cost,
-            current
-        });
+        payload = { ...payload, shares, unit: prev.unit || '股', cost, current };
     }
-    saveMockHoldings();
-    refreshPortfolioByHoldings();
-    renderHoldings();
-    closeEditHoldingModal();
+
+    try {
+        const res = await fetch(`/api/holdings/${code}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        const result = await res.json();
+        if (!result.ok) { alert(result.message || '修改失败'); return; }
+        await loadPortfolio();
+        renderHoldings();
+        closeEditHoldingModal();
+    } catch (e) {
+        alert('修改失败：' + e.message);
+    }
 }
 
 function renderRiskMetrics(metrics) {
+    const el = document.getElementById('riskMetrics');
+    if (!el) return;
     const items = [
         { label: '夏普比率', value: metrics.sharpe_ratio, color: '#10b981' },
         { label: '最大回撤', value: metrics.max_drawdown + '%', color: '#ef4444' },
@@ -1990,12 +3014,105 @@ function renderRiskMetrics(metrics) {
         { label: 'Alpha收益', value: metrics.alpha + '%', color: '#10b981' },
         { label: 'VaR(95%)', value: metrics.var_95 + '%', color: '#ef4444' },
     ];
-    document.getElementById('riskMetrics').innerHTML = items.map(m =>
+    el.innerHTML = items.map(m =>
         `<div class="metric-item">
             <div class="metric-label">${m.label}</div>
             <div class="metric-value" style="color:${m.color}">${m.value}</div>
         </div>`
     ).join('');
+}
+
+// ==================== Kimi 估值分析弹窗 ====================
+async function openKimiValuation(code, name, assetType) {
+    const modal = document.getElementById('kimiValuationModal');
+    const titleEl = document.getElementById('kimiValuationTitle');
+    const metaEl = document.getElementById('kimiValuationMeta');
+    const contentEl = document.getElementById('kimiValuationContent');
+    if (!modal) return;
+
+    // 重置为加载状态
+    titleEl.textContent = `Kimi AI 估值分析 · ${name}（${code}）`;
+    metaEl.innerHTML = '';
+    contentEl.innerHTML = `<div class="kimi-loading">
+        <div class="typing-indicator">
+            <div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div>
+        </div>
+        <span style="color:var(--text-muted);font-size:13px;margin-top:8px">Kimi 正在深度分析估值，请稍候（约10-20秒）…</span>
+    </div>`;
+    modal.classList.remove('hidden');
+
+    // 获取该持仓的本地指标
+    const ind = (holdingIndicators && holdingIndicators[code]) || {};
+    const holding = (holdingsData || []).find(h => h.code === code) || {};
+
+    try {
+        const res = await fetch(apiUrl('/api/kimi-valuation'), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                code,
+                name,
+                asset_type: assetType,
+                indicators: ind,
+                holding: {
+                    cost: holding.cost,
+                    current: holding.current,
+                    return_pct: holding.return_pct,
+                    market_value: holding.market_value || holding.amount
+                }
+            })
+        });
+        const data = await parseFetchJson(res);
+
+        if (data._parseFailed) {
+            contentEl.innerHTML = `<div class="kimi-error"><span style="color:#ef4444">${escapeHtml(data._message)}</span></div>`;
+            return;
+        }
+
+        if (data.error) {
+            contentEl.innerHTML = `<div class="kimi-error"><span style="color:#ef4444">Kimi 暂时无法响应：${data.error}</span><br><span style="color:var(--text-muted);font-size:12px;margin-top:8px;display:block">可稍后重试，或在 AI 助手中手动询问"分析 ${name} 的估值"</span></div>`;
+            return;
+        }
+
+        // 渲染指标概览行（股票与基金显示不同指标）
+        const isKimiFund = assetType === '基金';
+        const indItems = [
+            { label: '估值百分位', value: ind.valuation_pct != null ? `${Number(ind.valuation_pct).toFixed(0)}%` : '--', tip: isKimiFund ? '净值相对近60日区间的分位' : 'PE/PB历史分位' },
+            {
+                label: isKimiFund ? '近1年收益率' : '盈利增速',
+                value: isKimiFund
+                    ? (ind.return_1y != null ? `${Number(ind.return_1y) >= 0 ? '+' : ''}${Number(ind.return_1y).toFixed(2)}%` : '--')
+                    : (ind.profit_growth != null ? `${Number(ind.profit_growth) >= 0 ? '+' : ''}${Number(ind.profit_growth).toFixed(1)}%` : '--'),
+                tip: isKimiFund ? '从1年前至今的净值涨幅' : '近一年归母净利润增速'
+            },
+            {
+                label: isKimiFund ? '近1年最大回撤' : '换手率(5日均)',
+                value: isKimiFund
+                    ? (ind.max_drawdown != null ? `${Number(ind.max_drawdown).toFixed(2)}%` : '--')
+                    : (ind.turnover != null ? `${Number(ind.turnover).toFixed(3)}%` : '--'),
+                tip: isKimiFund ? '近1年净值从高点的最大跌幅' : '衡量市场活跃度'
+            },
+            { label: '偏离20日线', value: ind.deviation != null ? `${Number(ind.deviation) >= 0 ? '+' : ''}${Number(ind.deviation).toFixed(2)}%` : '--', tip: '正值偏高于均线，负值偏低' },
+        ];
+        metaEl.innerHTML = `<div class="kimi-ind-overview">${indItems.map(it => `
+            <div class="kimi-ind-item" title="${it.tip}">
+                <div class="kimi-ind-label">${it.label}</div>
+                <div class="kimi-ind-value">${it.value}</div>
+            </div>`).join('')}</div>`;
+
+        // 渲染 Kimi 文字分析（支持简单 Markdown 加粗/换行）
+        const formatted = (data.analysis || '').replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>').replace(/\n/g, '<br>');
+        contentEl.innerHTML = `<div class="kimi-analysis-text">${formatted}</div>
+            <div class="kimi-disclaimer">以上分析由 Kimi AI 生成，仅供参考，不构成投资建议。</div>`;
+
+    } catch (e) {
+        contentEl.innerHTML = `<div class="kimi-error"><span style="color:#ef4444">请求失败：${e.message}</span></div>`;
+    }
+}
+
+function closeKimiValuationModal() {
+    const modal = document.getElementById('kimiValuationModal');
+    if (modal) modal.classList.add('hidden');
 }
 
 function renderIndustryPie(distribution) {
@@ -2013,16 +3130,6 @@ function renderIndustryPie(distribution) {
         }]
     });
     window.addEventListener('resize', () => chart.resize());
-}
-
-function renderRebalanceAlerts(alerts) {
-    const icons = { warning: '⚠️', info: 'ℹ️', success: '✅' };
-    document.getElementById('rebalanceAlerts').innerHTML = alerts.map(a =>
-        `<div class="alert-item ${a.type}">
-            <span class="alert-icon">${icons[a.type]}</span>
-            <span>${a.message}</span>
-        </div>`
-    ).join('');
 }
 
 // ==================== Chat ====================
@@ -2108,6 +3215,7 @@ function escapeHtml(text) {
 
 function formatMarkdown(text) {
     return text
+        .replace(/^##\s+(.+)$/gm, '<div class="rebalance-md-h2">$1</div>')
         .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>')
         .replace(/(^|[\s(])(https?:\/\/[^\s<)]+)(?=$|[\s)])/g, '$1<a href="$2" target="_blank" rel="noopener noreferrer">$2</a>')
         .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')

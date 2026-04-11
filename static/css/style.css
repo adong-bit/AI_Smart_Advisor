@@ -317,6 +317,53 @@ body {
     color: var(--purple);
 }
 
+/* 7×24 快讯：标注来源（渲染在 #newsFeed 内首行，保证可见） */
+.news-engine-banner {
+    font-size: 13px;
+    font-weight: 600;
+    line-height: 1.5;
+    padding: 12px 14px;
+    margin-bottom: 16px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border-light);
+    color: var(--text-primary);
+    background: rgba(30, 41, 59, 0.85);
+    box-shadow: 0 1px 0 rgba(255, 255, 255, 0.04) inset;
+}
+.news-engine-banner.is-kimi {
+    border-color: rgba(139, 92, 246, 0.55);
+    background: linear-gradient(135deg, rgba(59, 130, 246, 0.22), rgba(139, 92, 246, 0.18));
+    color: #f1f5f9;
+}
+.news-engine-banner.is-rules {
+    border-color: rgba(148, 163, 184, 0.45);
+    color: #e2e8f0;
+}
+.news-engine-banner.is-loading {
+    border-color: rgba(59, 130, 246, 0.35);
+    color: #cbd5e1;
+}
+.news-engine-banner.is-unavailable {
+    border-color: rgba(239, 68, 68, 0.35);
+    color: #fecaca;
+    background: rgba(127, 29, 29, 0.2);
+}
+
+.news-engine-banner-detail {
+    margin-top: 8px;
+    font-size: 12px;
+    font-weight: 400;
+    line-height: 1.45;
+    color: #fca5a5;
+    word-break: break-word;
+}
+
+.news-placeholder {
+    font-size: 13px;
+    color: var(--text-muted);
+    padding: 8px 0 4px;
+}
+
 .card-actions {
     display: flex;
     gap: 4px;
@@ -476,6 +523,16 @@ body {
     gap: 8px;
 }
 
+/* 板块热力图：右上角为数据交易日（与 /api/market 中 sector_board_data_date 一致） */
+.sector-heatmap-date {
+    max-width: 9em;
+    text-align: right;
+    line-height: 1.35;
+    background: rgba(100, 116, 139, 0.22);
+    color: #cbd5e1;
+    font-weight: 600;
+}
+
 .sector-item {
     padding: 14px 10px;
     border-radius: var(--radius-sm);
@@ -543,6 +600,10 @@ body {
 }
 .news-sentiment.positive { background: var(--red-bg); color: var(--red); }
 .news-sentiment.negative { background: var(--green-bg); color: var(--green); }
+.news-sentiment.neutral {
+    background: rgba(148, 163, 184, 0.18);
+    color: #94a3b8;
+}
 
 .holding-type-tag {
     display: inline-block;
@@ -763,15 +824,228 @@ body {
     cursor: pointer;
 }
 
-.sentiment-hint {
-    margin-top: 10px;
+/* ========== A股情绪指标卡片 ========== */
+.sentiment-badge {
+    background: rgba(245, 158, 11, 0.15);
+    color: #fbbf24;
+    font-weight: 600;
+}
+
+.sentiment-card-body {
+    padding-top: 12px;
+}
+
+.sentiment-purpose {
+    font-size: 12px;
+    line-height: 1.65;
+    color: var(--text-secondary);
+    margin-bottom: 14px;
     padding: 10px 12px;
+    background: rgba(15, 23, 42, 0.55);
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border);
+}
+
+.sentiment-volume-data-date {
+    font-size: 11px;
+    line-height: 1.5;
+    color: var(--text-muted);
+    margin: -6px 0 12px;
+    padding: 0 4px;
+}
+
+.sentiment-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
+    gap: 8px 18px;
+    align-items: start;
+}
+
+@media (max-width: 1100px) {
+    .sentiment-layout {
+        grid-template-columns: 1fr;
+    }
+}
+
+.sentiment-gauge-col {
+    min-width: 0;
+}
+
+.sentiment-gauge-chart {
+    width: 100%;
+    height: 220px;
+}
+
+.sentiment-side-col {
+    min-width: 0;
+    padding-top: 4px;
+}
+
+.sentiment-readout {
+    margin-bottom: 14px;
+}
+
+.sentiment-readout-score {
+    font-size: 36px;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    color: var(--text-primary);
+    line-height: 1.1;
+}
+
+.sentiment-readout-sl {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-muted);
+    margin-left: 4px;
+}
+
+.sentiment-readout-label {
+    font-size: 15px;
+    font-weight: 700;
+    margin-top: 6px;
+}
+
+.sentiment-readout-z {
+    margin-top: 8px;
+    font-size: 11px;
+    color: var(--text-muted);
+    line-height: 1.45;
+}
+
+.sentiment-factors {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.sentiment-factors-empty {
+    font-size: 12px;
+    color: var(--text-muted);
+    padding: 8px 0;
+}
+
+.sentiment-factor-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 4px;
+    font-size: 12px;
+}
+
+.sentiment-factor-name {
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.sentiment-factor-w {
+    font-size: 11px;
+    color: var(--text-muted);
+}
+
+.sentiment-factor-bar-wrap {
+    position: relative;
+    height: 8px;
+    border-radius: 999px;
+    background: #0f172a;
+    overflow: hidden;
+}
+
+.sentiment-factor-bar-mid {
+    position: absolute;
+    left: 50%;
+    top: 0;
+    bottom: 0;
+    width: 1px;
+    margin-left: -1px;
+    background: rgba(148, 163, 184, 0.45);
+    z-index: 2;
+    pointer-events: none;
+}
+
+.sentiment-factor-bar-fill {
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    border-radius: 999px;
+    z-index: 1;
+    max-width: 100%;
+    transition: width 0.35s ease;
+}
+
+.sentiment-factor-foot {
+    margin-top: 4px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 10px;
+    align-items: baseline;
+    font-size: 11px;
+    line-height: 1.45;
+}
+
+.sentiment-factor-tip {
+    font-weight: 700;
+    flex-shrink: 0;
+}
+
+.sentiment-factor-desc {
+    color: var(--text-muted);
+}
+
+.sentiment-hint {
+    margin-top: 14px;
+    padding: 12px 14px;
     border-radius: var(--radius-sm);
     background: rgba(59, 130, 246, 0.08);
-    border: 1px solid rgba(59, 130, 246, 0.18);
+    border: 1px solid rgba(59, 130, 246, 0.2);
     color: var(--text-secondary);
     font-size: 12px;
-    line-height: 1.6;
+    line-height: 1.65;
+}
+
+.sentiment-hint-title {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--accent-light);
+    margin-bottom: 8px;
+}
+
+.sentiment-hint-row {
+    margin-top: 6px;
+}
+
+.sentiment-hint-row:first-of-type {
+    margin-top: 0;
+}
+
+.sentiment-hint-prompt {
+    color: var(--text-primary);
+    font-weight: 500;
+}
+
+.sentiment-hint-k {
+    color: var(--text-muted);
+    margin-right: 6px;
+}
+
+.sentiment-hint-v {
+    font-weight: 700;
+    color: #e2e8f0;
+    font-variant-numeric: tabular-nums;
+}
+
+.sentiment-hint-s {
+    margin-left: 6px;
+    color: var(--text-muted);
+    font-size: 11px;
+}
+
+.sentiment-hint-nlp {
+    color: var(--text-muted);
+    font-size: 11px;
 }
 
 /* ==================== Risk Assessment ==================== */
@@ -976,6 +1250,79 @@ body {
     color: var(--gold);
 }
 
+/* 情绪调仓说明条 */
+.alloc-tilt-note {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    margin-top: 12px;
+    padding: 10px 14px;
+    background: rgba(245, 158, 11, 0.12);
+    border-left: 3px solid #f59e0b;
+    border-radius: var(--radius-sm);
+    font-size: 13px;
+    color: #f59e0b;
+    line-height: 1.5;
+}
+.alloc-tilt-icon {
+    flex-shrink: 0;
+    font-size: 15px;
+    line-height: 1.5;
+}
+
+/* 回测模拟免责声明 */
+.backtest-disclaimer {
+    margin-top: 10px;
+    font-size: 11px;
+    color: #475569;
+    line-height: 1.6;
+    text-align: center;
+}
+
+/* Kimi 配置建议卡片 */
+.alloc-advice-card {
+    margin-top: 14px;
+    padding: 14px 16px;
+    background: rgba(59, 130, 246, 0.08);
+    border-left: 3px solid #3b82f6;
+    border-radius: var(--radius-sm);
+}
+.alloc-advice-text {
+    font-size: 13px;
+    color: #cbd5e1;
+    line-height: 1.7;
+    white-space: pre-wrap;
+    margin-bottom: 8px;
+}
+.alloc-advice-points {
+    margin: 0;
+    padding-left: 18px;
+}
+.alloc-advice-points li {
+    font-size: 12px;
+    color: #94a3b8;
+    line-height: 1.6;
+    margin-bottom: 3px;
+}
+
+/* 配置明细涨跌标注 */
+.alloc-delta {
+    display: inline-block;
+    font-size: 11px;
+    font-weight: 600;
+    margin-left: 4px;
+    padding: 0 3px;
+    border-radius: 3px;
+}
+.alloc-delta-up {
+    color: #ef4444;
+    background: rgba(239, 68, 68, 0.12);
+}
+.alloc-delta-down {
+    color: #10b981;
+    background: rgba(16, 185, 129, 0.12);
+}
+
 /* ==================== Stock Screening ==================== */
 .screening-controls { }
 
@@ -1072,6 +1419,33 @@ body {
 
 .ai-reason-text { font-size: 12px; color: var(--text-secondary); max-width: 260px; white-space: normal; line-height: 1.5; }
 
+/* Kimi 生成的理由：蓝色左边框 */
+.ai-reason-kimi {
+    display: inline-block;
+    border-left: 2px solid #3b82f6;
+    padding-left: 6px;
+    color: #93c5fd;
+}
+
+/* PE 行业估算标注 */
+.pe-estimated { color: var(--text-secondary); }
+.pe-est-tag { font-size: 10px; color: #475569; margin-left: 2px; }
+
+/* 权重变更 toast */
+.screening-toast {
+    display: none;
+    margin: 10px 0 0;
+    padding: 8px 14px;
+    background: rgba(245, 158, 11, 0.12);
+    border: 1px solid rgba(245, 158, 11, 0.3);
+    border-radius: var(--radius-sm);
+    font-size: 12px;
+    color: #f59e0b;
+    text-align: center;
+    transition: opacity 0.3s;
+}
+.screening-toast.visible { display: block; }
+
 .screening-charts {
     display: grid;
     grid-template-columns: 1fr;
@@ -1120,6 +1494,117 @@ body {
 
 .rebalance-alerts { display: flex; flex-direction: column; gap: 12px; }
 
+/* AI 调仓建议：Kimi + 本地规则 */
+.rebalance-kimi-wrap {
+    margin-bottom: 16px;
+}
+
+.rebalance-kimi-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 12px;
+}
+
+.rebalance-kimi-hint {
+    font-size: 11px;
+    color: var(--text-muted);
+    line-height: 1.4;
+}
+
+.rebalance-kimi-loading {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 20px 8px;
+}
+
+.rebalance-kimi-error {
+    font-size: 13px;
+    color: #fca5a5;
+    padding: 10px 12px;
+    background: var(--red-bg);
+    border-radius: var(--radius-sm);
+    border-left: 3px solid var(--red);
+}
+
+.rebalance-kimi-body {
+    font-size: 13px;
+    line-height: 1.75;
+    color: var(--text-primary);
+}
+
+.rebalance-kimi-body strong {
+    color: var(--accent-light);
+}
+
+.rebalance-md-h2 {
+    font-size: 14px;
+    font-weight: 600;
+    margin: 14px 0 8px;
+    color: var(--text-primary);
+    border-left: 3px solid var(--accent);
+    padding-left: 10px;
+    line-height: 1.4;
+}
+
+.rebalance-kimi-body-dim {
+    opacity: 0.55;
+    pointer-events: none;
+}
+
+.rebalance-macro-details {
+    margin-top: 12px;
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+.rebalance-macro-details summary {
+    cursor: pointer;
+    color: var(--text-muted);
+    user-select: none;
+}
+
+.rebalance-macro-pre {
+    margin-top: 8px;
+    padding: 10px;
+    background: var(--bg-input);
+    border-radius: var(--radius-sm);
+    font-size: 11px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    word-break: break-all;
+    max-height: 140px;
+    overflow-y: auto;
+    color: var(--text-secondary);
+}
+
+.rebalance-local-sep {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 4px 0 12px;
+    font-size: 11px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+}
+
+.rebalance-local-sep::before,
+.rebalance-local-sep::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--border);
+}
+
+.rebalance-alerts-rules {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
 .alert-item {
     padding: 14px 16px;
     border-radius: var(--radius-sm);
@@ -1135,6 +1620,159 @@ body {
 .alert-item.success { background: var(--green-bg); border-left: 3px solid var(--green); }
 
 .alert-icon { font-size: 16px; flex-shrink: 0; margin-top: 2px; }
+
+/* ==================== 持仓明细 - 决策指标列 ==================== */
+.th-indicator {
+    font-size: 11px;
+    color: var(--text-muted);
+    text-align: center;
+    white-space: nowrap;
+    cursor: help;
+    padding: 8px 6px;
+}
+
+.td-indicator {
+    text-align: center;
+    vertical-align: middle;
+    padding: 6px 4px;
+}
+
+.ind-badge {
+    display: inline-block;
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1.3;
+    text-align: center;
+}
+
+.ind-sub {
+    display: block;
+    font-size: 10px;
+    font-weight: 400;
+    opacity: 0.8;
+}
+
+.ind-na {
+    color: var(--text-muted);
+    font-size: 12px;
+}
+
+/* Kimi 估值按钮 */
+.table-kimi-btn {
+    background: linear-gradient(135deg, #6366f1, #8b5cf6) !important;
+    color: #fff !important;
+    border: none !important;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+}
+
+.table-kimi-btn:hover {
+    background: linear-gradient(135deg, #4f46e5, #7c3aed) !important;
+}
+
+/* 刷新指标按钮 */
+.btn-sm-ai {
+    background: linear-gradient(135deg, #0ea5e9, #3b82f6);
+    color: #fff;
+    border: none;
+    font-size: 11px;
+    border-radius: 6px;
+    padding: 4px 10px;
+    cursor: pointer;
+    transition: var(--transition);
+}
+
+.btn-sm-ai:hover { opacity: 0.85; }
+.btn-sm-ai:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* ==================== Kimi 估值分析弹窗 ==================== */
+.kimi-valuation-panel {
+    max-width: 680px;
+    width: 90vw;
+    max-height: 85vh;
+    overflow-y: auto;
+}
+
+.kimi-badge-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    border-radius: 6px;
+    background: linear-gradient(135deg, #6366f1, #8b5cf6);
+    color: #fff;
+    font-weight: 700;
+    font-size: 13px;
+    flex-shrink: 0;
+}
+
+.kimi-meta-bar {
+    margin-bottom: 16px;
+}
+
+.kimi-ind-overview {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 10px;
+    margin-bottom: 4px;
+}
+
+.kimi-ind-item {
+    background: var(--bg-input);
+    border-radius: var(--radius-sm);
+    padding: 10px 8px;
+    text-align: center;
+    cursor: help;
+}
+
+.kimi-ind-label {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-bottom: 4px;
+}
+
+.kimi-ind-value {
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--text-primary);
+}
+
+.kimi-valuation-content {
+    min-height: 80px;
+}
+
+.kimi-loading {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 32px 0;
+    gap: 4px;
+}
+
+.kimi-analysis-text {
+    font-size: 14px;
+    line-height: 1.8;
+    color: var(--text-primary);
+    padding: 4px 0 12px;
+}
+
+.kimi-analysis-text strong {
+    color: var(--accent-light);
+}
+
+.kimi-disclaimer {
+    font-size: 11px;
+    color: var(--text-muted);
+    border-top: 1px solid var(--border);
+    padding-top: 12px;
+    margin-top: 8px;
+}
+
+.kimi-error {
+    padding: 20px;
+    text-align: center;
+}
 
 /* ==================== Chat ==================== */
 .chat-container {

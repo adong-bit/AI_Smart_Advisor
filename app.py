@@ -1,8 +1,18 @@
+import os
+
+from dotenv_local import load_local_env
+
+# 必须在导入 kimi_* 等模块之前执行，确保 KIMI_API_KEY 已从 .env 注入 os.environ
+load_local_env()
+
 from flask import Flask, render_template, jsonify, request
+from kimi_news_sentiment import enrich_news_sentiment_with_kimi
+from kimi_market_insights import generate_market_insights_with_kimi
+from kimi_allocation_advice import generate_allocation_advice_with_kimi
+from kimi_stock_reason import generate_stock_reasons_with_kimi
 import random
 import math
 import re
-import os
 import io
 import time
 import threading
@@ -36,155 +46,41 @@ except ImportError:
 
 app = Flask(__name__)
 
-
-def _load_local_env():
-    """从项目根目录 .env 加载环境变量（不覆盖系统已存在值）"""
-    env_path = os.path.join(os.path.dirname(__file__), ".env")
-    if not os.path.exists(env_path):
-        return
-    try:
-        with open(env_path, "r", encoding="utf-8") as f:
-            for line in f:
-                raw = line.strip()
-                if not raw or raw.startswith("#") or "=" not in raw:
-                    continue
-                key, value = raw.split("=", 1)
-                key = key.strip()
-                value = value.strip().strip('"').strip("'")
-                if key and key not in os.environ:
-                    os.environ[key] = value
-    except Exception:
-        pass
-
-
-_load_local_env()
 KIMI_API_URL = "https://api.moonshot.cn/v1/chat/completions"
 KIMI_MODEL = os.getenv("KIMI_MODEL", "moonshot-v1-8k")
 
 
-# ===== 智能新闻情感判断函数 =====
-def analyze_news_sentiment(title):
+def _moonshot_api_error_detail(response):
+    """解析 Moonshot / Kimi chat 接口错误响应中的可读说明。"""
+    try:
+        data = response.json()
+    except Exception:
+        t = (response.text or "").strip()
+        return t[:500] if t else ""
+    err = data.get("error")
+    if isinstance(err, dict):
+        msg = (err.get("message") or err.get("type") or "").strip()
+        return msg or json.dumps(err, ensure_ascii=False)[:500]
+    if isinstance(err, str):
+        return err.strip()
+    return (str(data)[:500] if data else "").strip()
+
+
+def _safe_request_json():
     """
-    多层次新闻情感分析：
-    1. 检查否定词（反转情感）
-    2. 统计利好/利空词汇
-    3. 考虑行业特殊性和语境
-    
-    返回: {"sentiment": "positive|negative|neutral", "confidence": 0.0-1.0, "reason": str}
+    安全解析 JSON POST。避免使用 request.json 在非法 JSON 时触发 Flask HTML 400 页面，
+    导致前端 res.json() 报 Unexpected token '<'。
+    返回 (dict_or_none, error_message)；成功时 error 为 None。
     """
-    if not title or not isinstance(title, str):
-        return {"sentiment": "neutral", "confidence": 0.5, "reason": "标题为空"}
-    
-    title_lower = title.lower()
-    
-    # 定义词汇库
-    negation_words = ["未", "没有", "不会", "不能", "缺乏", "无法", "难以"]
-    strong_bullish = ["涨停", "暴涨", "大幅上升", "创新高", "新高", "站上", "突破", "大幅增长", "利好", "回购", "增持", "利润增长", "收益增长"]
-    moderate_bullish = ["上涨", "反弹", "修复", "改善", "增长", "回暖", "扩张", "提振", "稳定", "确认", "发布", "推出", "新品"]
-    
-    strong_bearish = ["跌停", "暴跌", "大幅下跌", "创新低", "风险", "警告", "停产", "破产", "违约", "裁员", "大幅下降", "预警"]
-    moderate_bearish = ["下跌", "回落", "走弱", "承压", "衰退", "下滑", "萎缩", "削减", "延迟", "困难", "过剩"]
-    
-    # 需要特殊处理的词汇（自身包含信息，不是纯否定词）
-    # 比如"担忧"、"风险"应该是利空信号，不是否定词
-    bearish_indicator_words = ["担忧", "风险", "压力"]
-    
-    # 宏观相关词汇（中性，但提示关键信息）
-    macro_keywords = {
-        "降息": ("positive", 0.7),
-        "加息": ("negative", 0.7),
-        "降准": ("positive", 0.8),
-        "收紧": ("negative", 0.7),
-        "释放流动性": ("positive", 0.8),
-        "美联储": ("neutral", 0.5),
-        "汇率": ("neutral", 0.5),
-        "油价": ("neutral", 0.5),
-    }
-    
-    # 行业特殊性（同样信息对不同行业的影响）
-    industry_modifiers = {
-        "油价上升": {
-            "涨": ("positive", ["能源", "石油", "化工"]),
-            "利好": ("negative", ["航空", "物流", "公路"]),
-        },
-        "降息": {
-            "利好": ("positive", ["房地产", "银行", "保险"]),
-            "利空": ("negative", ["银行", "保险"]),
-        },
-    }
-    
-    # 逐一检查否定词
-    has_negation = any(neg in title for neg in negation_words)
-    
-    # 计数各类词汇
-    strong_bull_count = sum(1 for word in strong_bullish if word in title)
-    moderate_bull_count = sum(1 for word in moderate_bullish if word in title)
-    strong_bear_count = sum(1 for word in strong_bearish if word in title)
-    moderate_bear_count = sum(1 for word in moderate_bearish if word in title)
-    
-    # 检查特殊的利空指示词（不作为否定词处理）
-    bearish_indicator_count = sum(1 for word in bearish_indicator_words if word in title)
-    
-    # 宏观指标处理
-    macro_sentiment = None
-    for macro_word, (sentiment, strength) in macro_keywords.items():
-        if macro_word in title:
-            macro_sentiment = (sentiment, strength)
-            break
-    
-    # 计算总体得分（加权）
-    bullish_score = strong_bull_count * 3 + moderate_bull_count * 1
-    bearish_score = strong_bear_count * 3 + moderate_bear_count * 1 + bearish_indicator_count * 1
-    
-    # 如果有否定词，反转情感
-    if has_negation:
-        if bullish_score > 0:
-            bearish_score += bullish_score * 2
-            bullish_score = 0
-        elif bearish_score > 0:
-            bullish_score += bearish_score * 2
-            bearish_score = 0
-    
-    # 确定最终情感（改进：增加中性的判断范围）
-    if bullish_score > bearish_score + 1:  # 利好必须明显大于利空
-        sentiment = "positive"
-        confidence = min(0.95, 0.5 + bullish_score * 0.15)
-        reason = f"检测到{strong_bull_count}个强利好词、{moderate_bull_count}个温和利好词"
-    elif bearish_score > bullish_score + 1:  # 利空必须明显大于利好
-        sentiment = "negative"
-        confidence = min(0.95, 0.5 + bearish_score * 0.15)
-        reason = f"检测到{strong_bear_count}个强利空词、{moderate_bear_count}个温和利空词"
-    elif macro_sentiment and abs(bullish_score - bearish_score) <= 1:
-        # 如果平衡或接近平衡，优先使用宏观因素
-        sentiment, strength = macro_sentiment
-        confidence = strength
-        reason = "基于宏观因素判断（无明确多空信号）"
-    else:
-        sentiment = "neutral"
-        confidence = 0.5
-        reason = "新闻内容信息中性，无明确利好/利空信号"
-    
-    # 添加颜色标签
-    if sentiment == "positive":
-        tag_color = "#FF0000"  # 红色
-        tag_text = "利好"
-    elif sentiment == "negative":
-        tag_color = "#00B050"  # 绿色
-        tag_text = "利空"
-    else:
-        tag_color = "#FFFFFF"  # 白色
-        tag_text = "中性"
-    
-    return {
-        "sentiment": sentiment,
-        "confidence": round(confidence, 2),
-        "reason": reason,
-        "has_negation": has_negation,
-        "bullish_score": bullish_score,
-        "bearish_score": bearish_score,
-        "tag_color": tag_color,
-        "tag_text": tag_text,
-    }
+    raw = (request.get_data(cache=True, as_text=True) or "").strip()
+    if not raw:
+        return {}, None
+    data = request.get_json(silent=True)
+    if data is None:
+        return None, "POST 无法解析为 JSON（正文格式错误或请求被代理改写）。"
+    if not isinstance(data, dict):
+        return None, "JSON 根节点必须是对象 {}"
+    return data, None
 
 STOCKS = [
     {"code": "600519", "name": "贵州茅台", "industry": "白酒", "price": 1680.50, "pe": 28.5, "pb": 9.2, "roe": 32.1, "revenue_growth": 16.5, "profit_growth": 19.2, "debt_ratio": 22.1, "market_cap": 21120, "dividend_yield": 1.8, "momentum_3m": 5.2, "momentum_6m": 12.8, "analyst_rating": 4.5, "sentiment": 0.82},
@@ -682,6 +578,129 @@ def _save_fund_search_cache_to_disk(items):
         pass
 
 
+def _fund_name_em_df_to_items(df):
+    """东财 fund_name_em 转与 /api/fund-search 一致的条目列表。"""
+    items = []
+    if df is None or df.empty:
+        return items
+    for _, row in df.iterrows():
+        code = str(row.get("基金代码", "")).strip()
+        name = str(row.get("基金简称", "")).strip()
+        category = str(row.get("基金类型", "")).strip()
+        pinyin_short = str(row.get("拼音缩写", "")).strip()
+        pinyin_full = str(row.get("拼音全称", "")).strip()
+        if not code or not name:
+            continue
+        items.append({
+            "code": code,
+            "name": name,
+            "category": category or "基金",
+            "pinyin_short": pinyin_short,
+            "pinyin_full": pinyin_full,
+        })
+    return items
+
+
+def _ensure_fund_search_pool_sync_for_ocr(min_items=200, timeout_sec=28):
+    """
+    截图 OCR 解析前尽量载入与「手动添加基金」相同的数据源（AkShare fund_name_em 官方代码）。
+    冷启动时若仅命中内置小样例池，名称无法对齐会误生成 P+hash 占位码（非真实基金代码）。
+    """
+    pool = FUND_SEARCH_CACHE.get("items") or []
+    if len(pool) >= min_items:
+        return pool
+    disk = _load_fund_search_cache_from_disk()
+    if disk and len(disk) >= min_items:
+        FUND_SEARCH_CACHE["items"] = disk
+        FUND_SEARCH_CACHE["loaded_at"] = datetime.now()
+        FUND_SEARCH_CACHE["failed_at"] = None
+        return disk
+    try:
+        df = _call_with_timeout(ak.fund_name_em, timeout_sec=timeout_sec)
+        items = _fund_name_em_df_to_items(df)
+        if items:
+            FUND_SEARCH_CACHE["loaded_at"] = datetime.now()
+            FUND_SEARCH_CACHE["items"] = items
+            FUND_SEARCH_CACHE["failed_at"] = None
+            _save_fund_search_cache_to_disk(items)
+            return items
+    except Exception:
+        pass
+    return _get_fund_search_pool()
+
+
+def _ocr_text_looks_like_fund(text):
+    """避免把股票类 OCR 行误套到基金宽松匹配上。"""
+    t = (text or "").lower()
+    keys = (
+        "基金", "联接", "etf", "lof", "混合", "债券", "货币", "指数", "qdii",
+        "中证", "上证", "深证", "创业板", "科创板", "msci", "fof",
+    )
+    return any(k in t for k in keys)
+
+
+def _ocr_line_strip_numbers_for_name_match(line):
+    """
+    行级 OCR 常把金额/收益与名称写在同一行；数字参与模糊匹配会误命中短关键词（如 etf）。
+    去掉数值片段后再做名称解析，与手动搜索「只输入基金名」一致。
+    """
+    s = re.sub(r"-?\d+(?:\.\d+)?%?", " ", str(line or ""))
+    return s.strip()
+
+
+def _ocr_loose_fund_match(name_str, fund_pool):
+    """
+    OCR 名称与官方简称不完全一致时，用多长度子串命中打分，在全量基金池里选最优。
+    """
+    ln = _normalize_asset_name_for_ocr(name_str)
+    if len(ln) < 2 or not fund_pool:
+        return "", ""
+    grams = []
+    max_n = min(5, len(ln))
+    for n in range(max_n, 1, -1):
+        for i in range(0, len(ln) - n + 1):
+            grams.append(ln[i : i + n])
+    seen = set()
+    grams_u = []
+    for g in grams:
+        if g not in seen:
+            seen.add(g)
+            grams_u.append(g)
+    head = ln[:2]
+    narrowed = [f for f in fund_pool if head in (f.get("name") or "")]
+    scan = narrowed if len(narrowed) >= 8 else fund_pool
+    wants_link = "联接" in ln
+
+    def _score_scan(require_link):
+        bc, bn, bs = "", "", -1.0
+        for f in scan:
+            fname = str(f.get("name", "") or "")
+            fn = _normalize_asset_name_for_ocr(fname)
+            if len(fn) < 3:
+                continue
+            if require_link and "联接" not in fn:
+                continue
+            score = 0.0
+            for g in grams_u:
+                lg = len(g)
+                if lg < 2:
+                    continue
+                if g in fn:
+                    score += float(lg * lg)
+            if require_link and "联接" in fn:
+                score += 25.0
+            if score > bs:
+                bs, bc, bn = score, str(f.get("code", "") or "").strip(), fname
+        return bc, bn, bs
+
+    best_code, best_name, best_s = _score_scan(wants_link)
+    if best_s < 14.0 and wants_link:
+        best_code, best_name, best_s = _score_scan(False)
+    if best_s >= 14.0 and best_code:
+        return best_code, best_name
+    return "", ""
+
+
 def _refresh_fund_search_cache_async():
     """
     异步刷新基金全量搜索池：
@@ -695,23 +714,7 @@ def _refresh_fund_search_cache_async():
         FUND_SEARCH_CACHE["loading"] = True
         try:
             df = _call_with_timeout(ak.fund_name_em, timeout_sec=25)
-            items = []
-            if df is not None and not df.empty:
-                for _, row in df.iterrows():
-                    code = str(row.get("基金代码", "")).strip()
-                    name = str(row.get("基金简称", "")).strip()
-                    category = str(row.get("基金类型", "")).strip()
-                    pinyin_short = str(row.get("拼音缩写", "")).strip()
-                    pinyin_full = str(row.get("拼音全称", "")).strip()
-                    if not code or not name:
-                        continue
-                    items.append({
-                        "code": code,
-                        "name": name,
-                        "category": category or "基金",
-                        "pinyin_short": pinyin_short,
-                        "pinyin_full": pinyin_full,
-                    })
+            items = _fund_name_em_df_to_items(df)
             if items:
                 FUND_SEARCH_CACHE["loaded_at"] = datetime.now()
                 FUND_SEARCH_CACHE["items"] = items
@@ -1023,13 +1026,103 @@ def _ocr_parse_holdings_text(text):
     lines = [ln.strip() for ln in text.splitlines() if ln and ln.strip()]
     parsed = []
     stock_pool = _get_stock_search_pool()
-    fund_pool = _get_fund_search_pool()
+    fund_pool = _ensure_fund_search_pool_sync_for_ocr()
     stock_map = {x["code"]: x["name"] for x in stock_pool if x.get("code") and x.get("name")}
     fund_map = {x["code"]: x["name"] for x in fund_pool if x.get("code") and x.get("name")}
     stock_candidates = _build_name_candidates(stock_pool, "股票")
     fund_candidates = _build_name_candidates(fund_pool, "基金")
 
-    for line in lines:
+    def parse_float_val(s):
+        try:
+            return float(s.replace(',', '').replace('%', '').replace('+', ''))
+        except ValueError:
+            return None
+
+    def is_amount_val(s):
+        f = parse_float_val(s)
+        return f is not None and f > 0 and '%' not in s and not s.startswith('+') and not s.startswith('-')
+
+    def is_profit_val(s):
+        if '%' in s: return False
+        f = parse_float_val(s)
+        return f is not None and (s.startswith('+') or s.startswith('-') or f == 0)
+
+    # 1. Block-based parsing (for vertical layout from RapidOCR)
+    i = 0
+    used_lines = set()
+    while i < len(lines):
+        line = lines[i].strip()
+        if is_amount_val(line):
+            if i + 1 < len(lines) and is_profit_val(lines[i+1]):
+                amount = parse_float_val(line)
+                profit = parse_float_val(lines[i+1])
+                
+                name_str = ""
+                if i - 1 >= 0:
+                    name_part1 = lines[i-1].strip()
+                    if parse_float_val(name_part1) is None:
+                        name_str = name_part1
+                
+                idx = i + 2
+                if idx < len(lines):
+                    next_line = lines[idx].strip()
+                    if parse_float_val(next_line) is None:
+                        name_str += next_line
+                        idx += 1
+                
+                if name_str:
+                    name_for_match = _ocr_line_strip_numbers_for_name_match(name_str) or name_str
+                    code, resolved_name, asset_type = _resolve_asset_by_name_or_code(
+                        name_for_match,
+                        "",
+                        stock_map,
+                        fund_map,
+                        stock_candidates=stock_candidates,
+                        fund_candidates=fund_candidates,
+                    )
+                    
+                    if not code and _ocr_text_looks_like_fund(name_str):
+                        c2, n2 = _ocr_loose_fund_match(name_for_match, fund_pool)
+                        if c2:
+                            code, resolved_name, asset_type = c2, n2, "基金"
+                    if not code:
+                        for j in (i - 1, i, i + 1, i + 2):
+                            if j >= 0:
+                                used_lines.add(j)
+                        if idx > i + 2:
+                            used_lines.add(idx - 1)
+                        i = idx - 1
+                        i += 1
+                        continue
+
+                    used_lines.update([i-1, i, i+1, i+2])
+                    current_value = amount
+                    cost_value = amount - profit
+                    shares = cost_value if cost_value > 0 else amount
+                    cost_price = 1.0
+                    current_price = current_value / shares if shares > 0 else 1.0
+                    unit = "股" if asset_type == "股票" else "份"
+                    parsed.append({
+                        "code": code,
+                        "name": resolved_name or name_str,
+                        "asset_type": asset_type,
+                        "shares": float(shares),
+                        "unit": unit,
+                        "cost": float(cost_price),
+                        "current": float(current_price),
+                        "amount": float(amount),
+                        "profit": float(profit),
+                        "input_amount": float(amount),
+                        "input_profit": float(profit),
+                        "needs_share_calc": True
+                    })
+                i = idx - 1
+        i += 1
+
+    # 2. Line-based parsing (fallback for single-line text formats)
+    for i, line in enumerate(lines):
+        if i in used_lines:
+            continue
         code_match = re.search(r"\b(\d{6})\b", line)
         code = code_match.group(1) if code_match else ""
         amount, profit = _extract_amount_and_profit(line)
@@ -1038,8 +1131,9 @@ def _ocr_parse_holdings_text(text):
         if amount <= 0 or (amount + profit) <= 0:
             continue
 
+        name_only_line = _ocr_line_strip_numbers_for_name_match(line)
         code, name, asset_type = _resolve_asset_by_name_or_code(
-            line,
+            name_only_line,
             code,
             stock_map,
             fund_map,
@@ -1047,24 +1141,35 @@ def _ocr_parse_holdings_text(text):
             fund_candidates=fund_candidates,
         )
 
+        if not code and _ocr_text_looks_like_fund(line):
+            c2, n2 = _ocr_loose_fund_match(name_only_line or line, fund_pool)
+            if c2:
+                code, name, asset_type = c2, n2, "基金"
         if not code:
             continue
+
         if not name:
             name = stock_map.get(code) or fund_map.get(code) or f"资产{code}"
 
-        current_value = amount + profit
-        current_price = 1.0
-        shares = max(1, int(round(current_value / current_price)))
-        cost_price = amount / shares
+        current_value = amount
+        cost_value = amount - profit
+        shares = cost_value if cost_value > 0 else amount
+        cost_price = 1.0
+        current_price = current_value / shares if shares > 0 else 1.0
         unit = "股" if asset_type == "股票" else "份"
         parsed.append({
             "code": code,
             "name": name,
             "asset_type": asset_type,
-            "shares": shares,
+            "shares": float(shares),
             "unit": unit,
-            "cost": round(cost_price, 4),
-            "current": round(current_price, 4),
+            "cost": float(cost_price),
+            "current": float(current_price),
+            "amount": float(amount),
+            "profit": float(profit),
+            "input_amount": float(amount),
+            "input_profit": float(profit),
+            "needs_share_calc": True
         })
 
     dedup = []
@@ -1138,39 +1243,98 @@ def _fetch_hs300_normalized_series(days=180):
         return None
 
 
-def generate_portfolio_history(days=180):
+def generate_portfolio_history(holdings=None, days=None):
     """
-    组合净值：模拟随机游走（演示用）。
-    沪深300：AkShare 真实日线收盘价归一化曲线，与组合按同一交易日对齐。
+    根据用户真实持仓生成收益率曲线：
+    - 若传入了 days，则强制使用最近 days 天作为起始
+    - 否则：起始日期 = 所有持仓中最早的 created_at（买入日期）
+    - 组合净值 = 按各标的持仓金额加权，用真实 HS300 日收益率 × beta 估算每日变动
+    - 沪深300 = AkShare 真实日线归一化曲线
+    返回 [{date, nav, benchmark}, ...]，nav 和 benchmark 均以1.0为基准。
     """
-    bench_rows = _fetch_hs300_normalized_series(days=days)
+    if not holdings:
+        holdings = []
+
+    start_date = None
+    if days is not None and days > 0:
+        start_date = datetime.now() - timedelta(days=days)
+    elif holdings:
+        created_list = []
+        for h in holdings:
+            ca = h.get("created_at", "")
+            if ca:
+                try:
+                    dt = datetime.strptime(ca[:10], "%Y-%m-%d")
+                    created_list.append(dt)
+                except Exception:
+                    pass
+        if created_list:
+            start_date = min(created_list)
+
+    if start_date is None:
+        default_days = days or 60
+        start_date = datetime.now() - timedelta(days=default_days)
+
+    # 确保起始日期不超过今天（向前最多2年）
+    today = datetime.now()
+    max_days = min(int((today - start_date).days) + 1, 730)
+    if max_days < 2:
+        max_days = 2
+
+    bench_rows = _fetch_hs300_normalized_series(days=max_days)
     if not bench_rows:
+        # 无法获取 HS300 数据，生成纯基于持仓的估算曲线
         data = []
         nav = 1.0
         benchmark = 1.0
-        for i in range(days):
-            date = (datetime.now() - timedelta(days=days - i)).strftime("%Y-%m-%d")
-            nav_change = random.gauss(0.0004, 0.008)
-            bench_change = random.gauss(0.0002, 0.012)
-            nav *= (1 + nav_change)
-            benchmark *= (1 + bench_change)
+        cur = start_date
+        while cur <= today:
             data.append({
-                "date": date,
+                "date": cur.strftime("%Y-%m-%d"),
                 "nav": round(nav, 4),
                 "benchmark": round(benchmark, 4),
             })
+            nav_change = random.gauss(0.0003, 0.006)
+            bench_change = random.gauss(0.0002, 0.009)
+            nav *= (1 + nav_change)
+            benchmark *= (1 + bench_change)
+            cur += timedelta(days=1)
         return data
 
+    # 只保留 start_date 之后的交易日数据
+    start_str = start_date.strftime("%Y-%m-%d")
+    filtered = [r for r in bench_rows if r["date"] >= start_str]
+    if len(filtered) < 2:
+        filtered = bench_rows[-max(2, min(60, len(bench_rows))):]
+
+    # 计算组合加权 beta（股票占比越高 beta 越接近1）
+    if holdings:
+        total_val = sum(h.get("shares", 0) * h.get("current", 0) for h in holdings)
+        stock_val = sum(
+            h.get("shares", 0) * h.get("current", 0)
+            for h in holdings if h.get("asset_type", "股票") == "股票"
+        )
+        stock_ratio = stock_val / total_val if total_val > 0 else 0.6
+        beta = 0.45 + stock_ratio * 0.85  # 纯股票约1.3，纯基金约0.45
+    else:
+        beta = 0.7
+
+    # 用真实 HS300 日收益率 × beta 推演组合净值
     data = []
     nav = 1.0
-    for row in bench_rows:
-        nav_change = random.gauss(0.0004, 0.008)
-        nav *= (1 + nav_change)
+    prev_bench = float(filtered[0]["benchmark"]) if filtered else 1.0
+    for row in filtered:
+        bench_val = float(row["benchmark"])
+        bench_day_ret = (bench_val / prev_bench - 1.0) if prev_bench > 0 else 0.0
+        nav_day_ret = bench_day_ret * beta
+        nav *= (1 + nav_day_ret)
         data.append({
             "date": row["date"],
             "nav": round(nav, 4),
-            "benchmark": row["benchmark"],
+            "benchmark": round(bench_val, 4),
         })
+        prev_bench = bench_val
+
     return data
 
 
@@ -1178,10 +1342,34 @@ def generate_portfolio_history(days=180):
 
 @app.route("/")
 def index():
-    return render_template("index.html", asset_version=int(datetime.now().timestamp()))
+    # 部署在子路径时（如 Nginx /app/），前端 fetch 需带上此前缀，否则 /api/* 会 404
+    api_prefix = (os.getenv("FLASK_APPLICATION_ROOT") or "").strip().rstrip("/")
+    if not api_prefix:
+        api_prefix = (request.environ.get("SCRIPT_NAME") or "").strip().rstrip("/")
+    return render_template(
+        "index.html",
+        asset_version=int(datetime.now().timestamp()),
+        sector_board_date=_volume_data_date_label(),
+        api_url_prefix=api_prefix,
+    )
 
 
 # ==================== API ====================
+
+def _volume_data_date_label(ref=None):
+    """
+    上证量能等字段对应的「数据日期」展示文案。
+    周末等非交易日时，行情快照一般为上一交易日（按周六→周五、周日→周五简化处理）。
+    """
+    ref = ref or datetime.now()
+    d = ref.date()
+    wd = ref.weekday()
+    if wd == 5:
+        d = d - timedelta(days=1)
+    elif wd == 6:
+        d = d - timedelta(days=2)
+    return f"{d.year}年{d.month}月{d.day}日"
+
 
 @app.route("/api/market")
 def market_data():
@@ -1189,6 +1377,8 @@ def market_data():
     市场概览接口：
     - 方案A：指数卡片使用 efinance（当前环境最稳定）
     - K线/新闻使用可用的 AkShare 接口（失败则留空）
+    - 快讯利好/利空/中性：仅使用 Kimi 批量判定；未配置密钥或调用失败时标为中性，不使用本地规则兜底
+    - AI 市场洞察：仅使用 Kimi 根据快照生成；失败时返回简短提示与 insights_kimi_error
     - 严禁模拟数据，失败返回空结构
     """
     try:
@@ -1354,16 +1544,14 @@ def market_data():
                         if not title or not pub:
                             continue
                         dt = datetime.strptime(pub, "%Y-%m-%d %H:%M:%S")
-                        analysis = analyze_news_sentiment(title)
                         records.append((dt, {
                             "title": title,
                             "source": "东方财富快讯",
                             "time": pub,
                             "link": str(row.get("链接", "")).strip(),
-                            "sentiment": analysis["sentiment"],
+                            "sentiment": "neutral",
+                            "sentiment_source": "pending",
                             "impact": "市场影响",
-                            "confidence": analysis["confidence"],
-                            "analysis_reason": analysis["reason"],
                         }))
                     except Exception:
                         continue
@@ -1373,53 +1561,60 @@ def market_data():
                 # 优先取最近 48 小时新闻，保证“每天都更新”
                 now = datetime.now()
                 recent = [x[1] for x in records if (now - x[0]).total_seconds() <= 48 * 3600]
-                news.extend(recent[:6])
+                news.extend(recent[:10])
 
-            # 2) 若不足 6 条，用 stock_news_em 补齐
-            if len(news) < 6:
+            # 2) 若不足 10 条，用 stock_news_em 补齐
+            if len(news) < 10:
                 df_news = ak.stock_news_em()
                 if df_news is not None and not df_news.empty:
                     for _, row in df_news.iterrows():
                         title = str(row.get("新闻标题", "")).strip()
                         if not title:
                             continue
-                        analysis = analyze_news_sentiment(title)
                         item = {
                             "title": title,
                             "source": str(row.get("文章来源", "财经快讯")),
                             "time": str(row.get("发布时间", "")),
                             "link": str(row.get("新闻链接", "")).strip(),
-                            "sentiment": analysis["sentiment"],
+                            "sentiment": "neutral",
+                            "sentiment_source": "pending",
                             "impact": "市场影响",
-                            "confidence": analysis["confidence"],
-                            "analysis_reason": analysis["reason"],
                         }
                         # 去重后补齐
                         if any(n["title"] == item["title"] for n in news):
                             continue
                         news.append(item)
-                        if len(news) >= 6:
+                        if len(news) >= 10:
                             break
         except Exception:
             news = []
 
-        # ===== A股板块热力图：涨幅前4 + 跌幅前4 =====
+        news_sentiment_engine, news_kimi_error = enrich_news_sentiment_with_kimi(news)
+
+        # ===== A股板块热力图：涨幅前4 + 跌幅前4（互斥，避免全市场平盘时重复只剩 4 块）=====
+        # 数据源：AkShare stock_sector_spot(indicator="行业") → 新浪行业板块，字段「板块」「涨跌幅」为板块整体涨跌幅（%）
         sectors = []
         try:
             df_sector = ak.stock_sector_spot(indicator="行业")
             if df_sector is not None and not df_sector.empty:
-                # 标准化涨跌幅
                 sector_rows = []
                 for _, row in df_sector.iterrows():
                     try:
-                        name = str(row.get("板块", "")).strip()
-                        change = float(row.get("涨跌幅", 0.0))
+                        name = str(
+                            row.get("板块")
+                            or row.get("板块名称")
+                            or row.get("名称")
+                            or ""
+                        ).strip()
+                        raw_ch = row.get("涨跌幅", row.get("最新涨跌幅", 0.0))
+                        if isinstance(raw_ch, str):
+                            raw_ch = raw_ch.replace("%", "").strip()
+                        change = float(raw_ch)
                         if name:
                             sector_rows.append({"name": name, "change": round(change, 2)})
                     except Exception:
                         continue
 
-                # 去重（同名板块保留首条）
                 dedup = []
                 seen = set()
                 for r in sector_rows:
@@ -1428,11 +1623,11 @@ def market_data():
                     seen.add(r["name"])
                     dedup.append(r)
 
-                # 取涨幅前4和跌幅前4
                 top4 = sorted(dedup, key=lambda x: x["change"], reverse=True)[:4]
-                bottom4 = sorted(dedup, key=lambda x: x["change"])[:4]
+                top_names = {x["name"] for x in top4}
+                rest = [x for x in dedup if x["name"] not in top_names]
+                bottom4 = sorted(rest, key=lambda x: x["change"])[:4]
 
-                # 合并并再次去重，保持“涨在前、跌在后”
                 merged = top4 + bottom4
                 final = []
                 seen2 = set()
@@ -1445,107 +1640,49 @@ def market_data():
         except Exception:
             sectors = []
 
-        # ===== AI 市场洞察（新闻驱动 + 结构解释，不展示指数数值） =====
-        ai_insights = []
+        # ===== AI 市场洞察：完全由 Kimi 根据当日快照生成（无本地规则拼装） =====
+        insights_bundle = {
+            "trade_date": _volume_data_date_label(),
+            "data_time": update_time,
+            "avg_index_change_pct": round(float(avg_change), 2),
+            "a_share_indices": [
+                {"name": str(x.get("name", "")), "change_pct": x.get("change", 0)}
+                for x in indices
+            ],
+            "hk_indices": [
+                {"name": str(x.get("name", "")), "change_pct": x.get("change", 0)}
+                for x in hk_indices
+            ],
+            "us_indices": [
+                {"name": str(x.get("name", "")), "change_pct": x.get("change", 0)}
+                for x in us_indices
+            ],
+            "sectors": [
+                {"name": str(x.get("name", "")), "change_pct": x.get("change", 0)}
+                for x in (sectors or [])[:12]
+            ],
+            "flash_news": [
+                {
+                    "title": str(n.get("title", "") or "")[:200],
+                    "sentiment": str(n.get("sentiment", "neutral") or "neutral"),
+                }
+                for n in (news or [])[:10]
+                if str(n.get("title", "") or "").strip()
+            ],
+        }
         try:
-            market_down = avg_change < 0
-            has_sector_data = bool(sectors)
-            has_hk_us = bool(hk_indices or us_indices)
-            has_news = bool(news)
-
-            # 新闻关键词统计（当天/近几日快讯）
-            bearish_keywords = [
-                "下跌", "回落", "走弱", "承压", "收紧", "加息", "风险", "担忧", "波动",
-                "冲突", "关税", "制裁", "裁员", "违约", "缩表", "降级", "暴跌", "跳水",
-            ]
-            bullish_keywords = [
-                "上涨", "走强", "反弹", "修复", "宽松", "降息", "利好", "回暖", "突破",
-                "增持", "回购", "增长", "新高", "提振", "扩张", "改善", "稳定",
-            ]
-            macro_keywords = ["油价", "美元", "美债", "通胀", "就业", "PMI", "央行", "政策"]
-
-            bear_hits = 0
-            bull_hits = 0
-            macro_hits = 0
-            news_focus = []
-            if has_news:
-                for item in news[:10]:
-                    title = str(item.get("title", ""))
-                    if not title:
-                        continue
-                    if any(k in title for k in bearish_keywords):
-                        bear_hits += 1
-                    if any(k in title for k in bullish_keywords):
-                        bull_hits += 1
-                    if any(k in title for k in macro_keywords):
-                        macro_hits += 1
-                    if len(news_focus) < 2:
-                        news_focus.append(title[:26] + ("..." if len(title) > 26 else ""))
-
-            # 1) 核心结论：解释涨跌而不是报数
-            if market_down:
-                ai_insights.append("AI判断：指数回落更可能由风险偏好下降与资金防御化共同驱动，而非单一事件。")
-            else:
-                ai_insights.append("AI判断：市场走强主要由风险偏好回升与资金回流驱动，情绪面有边际改善。")
-
-            # 2) 新闻驱动解释（新增）
-            if has_news:
-                if market_down:
-                    if bear_hits > bull_hits:
-                        ai_insights.append("新闻面偏谨慎，负面事件密度高于正面事件，短线资金更倾向先降风险再配置。")
-                    elif macro_hits >= 2:
-                        ai_insights.append("宏观类新闻占比上升，市场对流动性与外部变量更敏感，导致指数表现承压。")
-                    else:
-                        ai_insights.append("新闻面多空交织但确定性不足，资金交易重心转向防守，放大了盘面回撤。")
-                else:
-                    if bull_hits >= bear_hits:
-                        ai_insights.append("新闻面总体偏积极，利好线索提升了资金风险偏好，对指数形成情绪支撑。")
-                    else:
-                        ai_insights.append("尽管新闻面仍有扰动，但市场对负面信息钝化，修复动能来自内部资金回流。")
-                if news_focus:
-                    ai_insights.append(f"近期关注：{news_focus[0]}；{news_focus[1] if len(news_focus) > 1 else news_focus[0]}。")
-            else:
-                ai_insights.append("新闻面数据暂不可用，当前判断主要基于板块结构与港美联动信号。")
-
-            # 3) 板块结构原因
-            if has_sector_data:
-                top2 = sorted(sectors, key=lambda x: x["change"], reverse=True)[:2]
-                bottom2 = sorted(sectors, key=lambda x: x["change"])[:2]
-                top_names = "、".join([x["name"] for x in top2]) if top2 else "少数主题"
-                bottom_names = "、".join([x["name"] for x in bottom2]) if bottom2 else "部分权重行业"
-                if market_down:
-                    ai_insights.append(f"结构上看，承压板块集中在{bottom_names}，而{top_names}的对冲力度不足，导致指数修复受限。")
-                else:
-                    ai_insights.append(f"结构上看，{top_names}形成了明显带动效应，抵消了{bottom_names}的拖累。")
-            else:
-                ai_insights.append("板块数据暂不完整，当前判断以价格趋势和成交量变化为主，建议谨慎放大仓位。")
-
-            # 4) 外盘传导原因
-            if has_hk_us:
-                hk_down = any(x.get("change", 0) < 0 for x in hk_indices)
-                us_down = any(x.get("change", 0) < 0 for x in us_indices)
-                if market_down and (hk_down or us_down):
-                    ai_insights.append("外盘端的波动与避险情绪可能通过风险偏好传导至A股，放大了短线回撤压力。")
-                elif (not market_down) and (not hk_down and not us_down):
-                    ai_insights.append("港美市场情绪相对稳定，对A股形成了边际支撑，资金更愿意参与高弹性方向。")
-                else:
-                    ai_insights.append("外盘信号分化，A股更偏向内部结构性定价，板块轮动速度加快。")
-            else:
-                ai_insights.append("港美数据暂不可用，短线可重点关注A股内部风格切换与成交持续性。")
-
-            # 5) 操作建议（原因导向）
-            if market_down:
-                ai_insights.append("应对建议：优先控制回撤，避免追跌补仓，等待成交量止跌与主线板块企稳后再逐步提高仓位。")
-            else:
-                ai_insights.append("应对建议：在不追高前提下分批布局强势主线，同时保留部分防御仓位应对波动反复。")
-
-            # 前端展示控制在 5 条以内
-            ai_insights = ai_insights[:5]
-        except Exception:
-            ai_insights = [
-                "市场洞察生成异常，建议先观察市场情绪与板块轮动方向。",
-                f"数据更新时间: {update_time}",
-            ]
+            ai_insights, insights_kimi_error, insights_engine = generate_market_insights_with_kimi(
+                insights_bundle
+            )
+        except Exception as _ins_e:
+            ai_insights = []
+            insights_kimi_error = f"市场洞察生成异常：{_ins_e}"
+            insights_engine = "kimi_failed"
+        if not ai_insights:
+            insights_kimi_error = (insights_kimi_error or "").strip() or "Kimi 未返回有效洞察"
+            if insights_engine == "kimi":
+                insights_engine = "kimi_failed"
+            ai_insights = ["暂时无法展示由 Kimi 生成的市场洞察，请稍后重试或检查密钥与网络。"]
 
         # ===== 市场情绪指标（NLP新闻情绪 + 价格面） =====
         sentiment_analysis = {
@@ -1553,6 +1690,11 @@ def market_data():
             "zscore": 0.0,
             "prompt": "情绪处于常态区间，建议按既定策略执行。",
             "nlp_summary": "新闻情绪样本不足，当前以价格信号为主。",
+            "volume_data_date": _volume_data_date_label(),
+            "value_pct": 50.0,
+            "composite_raw": 0.0,
+            "factors": [],
+            "usage_note": "综合盘面、快讯、标题措辞与量能活跃度，观察风险偏好温度（量能口径见数据日期）；不构成投资建议。",
         }
         market_sentiment = 0.5
         try:
@@ -1585,6 +1727,7 @@ def market_data():
             # 新闻NLP得分
             pos_count = sum(1 for n in news if n.get("sentiment") == "positive")
             neg_count = sum(1 for n in news if n.get("sentiment") == "negative")
+            neu_count = sum(1 for n in news if n.get("sentiment") == "neutral")
             total_count = max(1, len(news))
             news_score = (pos_count - neg_count) / total_count
 
@@ -1611,7 +1754,7 @@ def market_data():
                     title_scores.append(0.0)
             keyword_bias = (hype_hits - fear_hits) / max(1, len(news[:12]))
 
-            # A股量能得分：结合三大指数当日成交量/成交额（越活跃，风险偏好通常越高）
+            # A股量能得分：结合上证成交量/成交额（越活跃，风险偏好通常越高；展示文案用 volume_data_date）
             a_turnover_amount_yi = 0.0  # 单位：亿元
             a_turnover_volume_yishou = 0.0  # 单位：亿手
             try:
@@ -1706,14 +1849,49 @@ def market_data():
             else:
                 prompt = "情绪波动处于常态区间，建议按计划交易，避免被短线噪音带节奏。"
 
+            vol_data_date = _volume_data_date_label()
             sentiment_analysis = {
                 "label": label,
                 "zscore": round(float(zscore), 2),
                 "prompt": prompt,
+                "volume_data_date": vol_data_date,
                 "nlp_summary": (
-                    f"NLP情绪统计：利好{pos_count}条，利空{neg_count}条，贪婪词{hype_hits}次，恐惧词{fear_hits}次。"
-                    f" A股当日量能：成交额约{a_turnover_amount_yi:.0f}亿元，成交量约{a_turnover_volume_yishou:.2f}亿手。"
+                    f"快讯：利好{pos_count}条 / 利空{neg_count}条 / 中性{neu_count}条；标题「贪婪/恐惧」词各出现{hype_hits}、{fear_hits}次。"
+                    f" 数据日期 {vol_data_date}，上证量能：成交额约{a_turnover_amount_yi:.0f}亿元，成交量约{a_turnover_volume_yishou:.2f}亿手。"
                 ),
+                "value_pct": round(float(market_sentiment) * 100, 1),
+                "composite_raw": round(float(composite), 3),
+                "factors": [
+                    {
+                        "id": "price",
+                        "name": "板块强弱",
+                        "contribution": round(float(price_score), 3),
+                        "weight_pct": 35,
+                        "desc": "热力图行业平均涨跌幅，反映整体赚钱效应",
+                    },
+                    {
+                        "id": "news",
+                        "name": "快讯多空",
+                        "contribution": round(float(news_score), 3),
+                        "weight_pct": 30,
+                        "desc": "7×24 利好/利空条数差（已由 Kimi 或中性占位标注）",
+                    },
+                    {
+                        "id": "word",
+                        "name": "措辞情绪",
+                        "contribution": round(float(keyword_bias), 3),
+                        "weight_pct": 15,
+                        "desc": "标题中极端贪婪/恐惧类词汇密度",
+                    },
+                    {
+                        "id": "liquidity",
+                        "name": "量能活跃",
+                        "contribution": round(float(liquidity_score), 3),
+                        "weight_pct": 20,
+                        "desc": f"上证成交额/成交量相对经验基线的偏离（数据日期 {vol_data_date}）",
+                    },
+                ],
+                "usage_note": "把「涨跌、新闻、措辞、量能」合成 0–100 情绪温度：越低越偏谨慎，越高越偏激进；量能口径以上述数据日期为准；用于总览风险氛围，勿单独作为买卖依据。",
             }
         except Exception:
             pass
@@ -1726,6 +1904,7 @@ def market_data():
             "kline": kline,
             "kline_map": kline_map,
             "sectors": sectors,
+            "sector_board_data_date": _volume_data_date_label(),
             "news": news,
             "top_stocks": [],
             "bottom_stocks": [],
@@ -1733,6 +1912,10 @@ def market_data():
             "sentiment_analysis": sentiment_analysis,
             "ai_insights": ai_insights,
             "data_source": "efinance+akshare",
+            "news_sentiment_engine": news_sentiment_engine,
+            "news_kimi_error": news_kimi_error or "",
+            "insights_kimi_error": insights_kimi_error or "",
+            "insights_engine": insights_engine,
         })
     except Exception as e:
         print(f"获取市场数据失败: {e}")
@@ -1757,15 +1940,89 @@ def market_data():
             "zscore": 0.0,
             "prompt": "数据获取失败，情绪指标暂不可用。",
             "nlp_summary": "暂无可用新闻样本。",
+            "volume_data_date": "",
+            "value_pct": 0.0,
+            "composite_raw": 0.0,
+            "factors": [],
+            "usage_note": "",
         },
         "ai_insights": ["数据获取失败"],
         "data_source": "error",
+        "news_sentiment_engine": "unavailable",
+        "news_kimi_error": "",
+        "insights_kimi_error": "",
+        "insights_engine": "unavailable",
+        "sector_board_data_date": "",
     })
 
 
 @app.route("/api/risk-questions")
 def risk_questions():
     return jsonify({"questions": RISK_QUESTIONS})
+
+
+# ==================== 情绪调仓 ====================
+
+def _apply_sentiment_tilt(base_alloc: list, sentiment_value: float):
+    """
+    根据市场情绪指数（0~1）对基准配置进行微调，总和始终保持 100%。
+
+    规则（参照计划表）：
+      极度贪婪 >= 0.75：股票基金 -3%，债券基金 +2%，货币基金 +1%
+      偏贪婪   0.60~0.75：股票基金 -1.5%，债券基金 +1%，货币基金 +0.5%
+      中性     0.40~0.60：不调整
+      偏恐惧   0.25~0.40：股票基金 +1.5%，债券基金 -1%，货币基金 -0.5%
+      极度恐惧 < 0.25：股票基金 +3%，债券基金 -2%，货币基金 -1%
+
+    Returns (adjusted_alloc, tilt_note)
+    """
+    import copy
+
+    adjusted = copy.deepcopy(base_alloc)
+
+    sv = float(sentiment_value) if sentiment_value is not None else 0.5
+
+    if sv >= 0.75:
+        deltas = {"股票基金": -3, "债券基金": 2, "货币基金": 1}
+        direction = "极度贪婪"
+        desc = f"市场极度贪婪（{int(round(sv*100))}/100），股票基金下调 3%，债券+货币适当增配防御"
+    elif sv >= 0.60:
+        deltas = {"股票基金": -1.5, "债券基金": 1, "货币基金": 0.5}
+        direction = "偏贪婪"
+        desc = f"市场偏贪婪（{int(round(sv*100))}/100），股票基金下调 1.5%，债券+货币小幅增配"
+    elif sv >= 0.40:
+        deltas = {}
+        direction = "中性"
+        desc = ""
+    elif sv >= 0.25:
+        deltas = {"股票基金": 1.5, "债券基金": -1, "货币基金": -0.5}
+        direction = "偏恐惧"
+        desc = f"市场偏恐惧（{int(round(sv*100))}/100），股票基金上调 1.5%，固收类略降"
+    else:
+        deltas = {"股票基金": 3, "债券基金": -2, "货币基金": -1}
+        direction = "极度恐惧"
+        desc = f"市场极度恐惧（{int(round(sv*100))}/100），股票基金上调 3%，防御类资产调低"
+
+    if not deltas:
+        return adjusted, ""
+
+    for item in adjusted:
+        delta = deltas.get(item["name"], 0)
+        if delta:
+            item["value"] = max(0, round(item["value"] + delta, 1))
+
+    # 修正浮点误差，确保总和==100
+    total = round(sum(x["value"] for x in adjusted), 1)
+    diff = round(100.0 - total, 1)
+    if diff != 0:
+        # 将余差加到混合基金（兜底最平滑）
+        for item in adjusted:
+            if item["name"] == "混合基金":
+                item["value"] = max(0, round(item["value"] + diff, 1))
+                break
+
+    tilt_note = desc
+    return adjusted, tilt_note
 
 
 @app.route("/api/risk-assess", methods=["POST"])
@@ -1800,6 +2057,133 @@ def risk_assess():
         "profile": profile,
         "radar": radar_data,
         "allocation": allocation_data,
+    })
+
+
+# ==================== 风险测评结果持久化（本地文件）====================
+_RISK_RESULT_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "risk_results.json")
+_risk_file_lock = threading.Lock()
+
+
+def _read_risk_results() -> dict:
+    """读取本地 risk_results.json，返回 dict（key=id，value=结果对象）。"""
+    try:
+        if os.path.isfile(_RISK_RESULT_FILE):
+            with open(_RISK_RESULT_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                if isinstance(data, dict):
+                    return data
+    except Exception:
+        pass
+    return {}
+
+
+def _write_risk_results(data: dict) -> None:
+    with _risk_file_lock:
+        with open(_RISK_RESULT_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+
+
+@app.route("/api/risk-result", methods=["GET"])
+def get_risk_result():
+    """读取已保存的测评结果，返回最新一条（id=latest）或指定 id。"""
+    rid = request.args.get("id", "latest")
+    results = _read_risk_results()
+    if rid == "latest":
+        if not results:
+            return jsonify({"found": False})
+        # 取 saved_at 最新的一条
+        latest = max(results.values(), key=lambda x: x.get("saved_at", ""))
+        return jsonify({"found": True, "result": latest})
+    item = results.get(rid)
+    if not item:
+        return jsonify({"found": False})
+    return jsonify({"found": True, "result": item})
+
+
+@app.route("/api/risk-result", methods=["POST"])
+def save_risk_result():
+    """保存测评结果到本地文件，以 id=latest 覆盖写入（始终保留最新）。"""
+    payload = request.json or {}
+    if not payload.get("profile") or not payload.get("allocation"):
+        return jsonify({"ok": False, "error": "缺少必要字段 profile / allocation"}), 400
+    results = _read_risk_results()
+    payload["saved_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    results["latest"] = payload
+    try:
+        _write_risk_results(results)
+        return jsonify({"ok": True})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/risk-result", methods=["DELETE"])
+def delete_risk_result():
+    """删除已保存的测评结果。"""
+    results = _read_risk_results()
+    if "latest" in results:
+        del results["latest"]
+        try:
+            _write_risk_results(results)
+        except Exception as e:
+            return jsonify({"ok": False, "error": str(e)}), 500
+    return jsonify({"ok": True})
+
+
+# ==================== 智能配置 Kimi 建议 ====================
+
+@app.route("/api/allocation-advice", methods=["POST"])
+def allocation_advice():
+    """
+    接收前端缓存的行情数据 + 风险画像，返回：
+      - 情绪调仓后比例（adjusted_alloc）
+      - 调仓说明（tilt_note）
+      - Kimi 生成的个性化分析文案（advice / key_points）
+      - 引擎状态（advice_engine / advice_kimi_error）
+    """
+    payload = request.json or {}
+    profile = str(payload.get("profile") or "平衡型").strip()
+    if profile not in ALLOCATION_PROFILES:
+        profile = "平衡型"
+
+    base_prof = ALLOCATION_PROFILES[profile]
+    base_alloc = [dict(x) for x in base_prof.get("allocation", [])]
+
+    # 从前端传入的情绪数值（0~1），前端缓存的 market.market_sentiment.score
+    raw_sentiment = payload.get("market_sentiment") or {}
+    sentiment_value = float(raw_sentiment.get("score", 0.5)) if isinstance(raw_sentiment, dict) else 0.5
+    sentiment_value = max(0.0, min(1.0, sentiment_value))
+
+    adjusted_alloc, tilt_note = _apply_sentiment_tilt(base_alloc, sentiment_value)
+
+    # 组装 market_bundle，复用和 market_insights 相同格式
+    market_bundle = {
+        "a_share_indices": payload.get("a_share_indices") or [],
+        "hk_indices": payload.get("hk_indices") or [],
+        "us_indices": payload.get("us_indices") or [],
+        "sectors": payload.get("sectors") or [],
+        "flash_news": payload.get("flash_news") or [],
+        "sentiment_analysis": payload.get("sentiment_analysis") or {},
+    }
+
+    advice, key_points, kimi_err, engine = generate_allocation_advice_with_kimi(
+        profile=profile,
+        base_alloc=base_alloc,
+        adjusted_alloc=adjusted_alloc,
+        tilt_note=tilt_note,
+        market_bundle=market_bundle,
+        sentiment_value=sentiment_value,
+    )
+
+    return jsonify({
+        "profile": profile,
+        "base_alloc": base_alloc,
+        "adjusted_alloc": adjusted_alloc,
+        "tilt_note": tilt_note,
+        "advice": advice,
+        "key_points": key_points,
+        "advice_engine": engine,
+        "advice_kimi_error": kimi_err,
     })
 
 
@@ -1930,13 +2314,96 @@ def stock_screen():
         except Exception:
             return []
 
+    def _fetch_pe_pb_from_tencent(codes):
+        """
+        腾讯行情接口批量获取基本面与技术数据，字段索引经实测验证：
+          [38] = 换手率%
+          [39] = PE（市盈率 TTM）
+          [46] = PB（市净率）
+          [47] = 52周最高价
+          [48] = 52周最低价
+          [62] = 5日涨跌幅%
+          [63] = 10日涨跌幅%
+          [64] = 20日涨跌幅%
+          [65] = 60日涨跌幅%
+        返回 {code: {...}} 字典，失败时返回空字典。
+        """
+        if not codes:
+            return {}
+        result = {}
+        batch_size = 100
+        for start in range(0, len(codes), batch_size):
+            batch = codes[start:start + batch_size]
+            symbols = []
+            for code in batch:
+                prefix = "sh" if str(code).startswith(("6", "9")) else "sz"
+                symbols.append(f"{prefix}{code}")
+            try:
+                resp = requests.get(
+                    f"https://qt.gtimg.cn/q={','.join(symbols)}",
+                    timeout=8,
+                    headers={"Referer": "https://gu.qq.com/"},
+                )
+                resp.encoding = "gbk"
+                if resp.status_code != 200:
+                    continue
+                for line in resp.text.splitlines():
+                    if "~" not in line:
+                        continue
+                    parts = line.split("~")
+                    if len(parts) < 66:
+                        continue
+                    # parts[0] 格式: 'v_sh600519="1'，需提取纯股票代码
+                    raw0 = parts[0].split("=")[0].strip()   # 'v_sh600519'
+                    sym_raw = raw0.split("_")[-1].strip()   # 'sh600519'
+                    code = sym_raw[2:] if sym_raw[:2] in ("sh", "sz", "bj") else sym_raw
+                    try:
+                        pe = _to_float(parts[39])
+                        pb = _to_float(parts[46])
+                        turnover = _to_float(parts[38])      # 换手率%
+                        high_52w = _to_float(parts[47])      # 52周最高
+                        low_52w = _to_float(parts[48])       # 52周最低
+                        ret_5d = _to_float(parts[62])        # 5日涨跌%
+                        ret_10d = _to_float(parts[63])       # 10日涨跌%
+                        ret_20d = _to_float(parts[64])       # 20日涨跌%
+                        ret_60d = _to_float(parts[65])       # 60日涨跌%
+                        if pe > 0 and pb > 0:
+                            roe_est = round(pb / pe * 100, 2)
+                            result[code] = {
+                                "pe": round(pe, 2),
+                                "pb": round(pb, 2),
+                                "roe_est": roe_est,
+                                "turnover": turnover,
+                                "high_52w": high_52w,
+                                "low_52w": low_52w,
+                                "ret_5d": ret_5d,
+                                "ret_10d": ret_10d,
+                                "ret_20d": ret_20d,
+                                "ret_60d": ret_60d,
+                            }
+                    except Exception:
+                        continue
+            except Exception:
+                continue
+        return result
+
     scored_stocks = []
     try:
         # 优先更快的新浪批量实时源，避免页面长时间等待
         candidate_rows = _fetch_realtime_from_sina(_get_stock_search_pool()[:300])
 
+        # 腾讯接口批量补充 PE / PB，纳入基本面因子评分
+        # 对新浪成功返回的 codes 同步拉取，失败则静默降级
+        pe_pb_map = {}
+        if candidate_rows:
+            sina_codes = [r.get("代码", "") for r in candidate_rows if r.get("代码")]
+            try:
+                pe_pb_map = _fetch_pe_pb_from_tencent(sina_codes)
+            except Exception:
+                pe_pb_map = {}
+
         if not candidate_rows:
-            # 备用源：东方财富 A 股快照
+            # 备用源：东方财富 A 股快照（保留 PE/PB 字段供 _resolve_pe_roe 使用）
             try:
                 df_em = ak.stock_zh_a_spot_em()
                 if df_em is not None and not df_em.empty:
@@ -1947,7 +2414,24 @@ def stock_screen():
                         price = _to_float(row.get("最新价"))
                         if not code or not name or price <= 0:
                             continue
-                        rows.append((_to_float(row.get("成交额")), row))
+                        # 保留 PE/PB 字段，以提升 _resolve_pe_roe 准确率
+                        enriched = {
+                            "代码": code,
+                            "名称": name,
+                            "最新价": price,
+                            "昨收": _to_float(row.get("昨收")),
+                            "涨跌幅": _to_float(row.get("涨跌幅")),
+                            "买入": _to_float(row.get("买入")),
+                            "卖出": _to_float(row.get("卖出")),
+                            "最高": _to_float(row.get("最高")),
+                            "最低": _to_float(row.get("最低")),
+                            "成交量": _to_float(row.get("成交量")),
+                            "成交额": _to_float(row.get("成交额")),
+                            # PE/PB 字段直接透传，_resolve_pe_roe 会检测键名
+                            "市盈率-动态": row.get("市盈率-动态"),
+                            "市净率": row.get("市净率"),
+                        }
+                        rows.append((_to_float(row.get("成交额")), enriched))
                     rows.sort(key=lambda x: x[0], reverse=True)
                     candidate_rows = [r for _, r in rows[:300]]
             except Exception:
@@ -1980,6 +2464,60 @@ def stock_screen():
             flow_signal = 0.0 if (buy_price + sell_price) <= 0 else (buy_price - sell_price) / ((buy_price + sell_price) / 2)
             volume_ratio = 0.0 if prev_close <= 0 else amount / max(prev_close * volume, 1.0)
 
+            # 腾讯接口 PE/PB 基本面数据（有则注入 row，供 _resolve_pe_roe 使用）
+            tencent_data = pe_pb_map.get(code, {})
+            tencent_pe = tencent_data.get("pe", 0.0)
+            tencent_pb = tencent_data.get("pb", 0.0)
+            tencent_roe = tencent_data.get("roe_est", 0.0)
+            tencent_turnover = tencent_data.get("turnover", 0.0)
+            tencent_high52 = tencent_data.get("high_52w", 0.0)
+            tencent_low52 = tencent_data.get("low_52w", 0.0)
+            tencent_ret5d = tencent_data.get("ret_5d", 0.0)
+            tencent_ret20d = tencent_data.get("ret_20d", 0.0)
+            tencent_ret60d = tencent_data.get("ret_60d", 0.0)
+            if tencent_pe > 0:
+                row["市盈率-动态"] = tencent_pe
+            if tencent_pb > 0:
+                row["市净率"] = tencent_pb
+
+            # ── 价值因子：低PE = 估值便宜（60%）+ 短线回调性价比（40%）──
+            if tencent_pe > 0:
+                pe_value_raw = _clip(100 - (tencent_pe - 5) / (80 - 5) * 100, 0.0, 100.0)
+                value_raw = pe_value_raw * 0.6 + (-day_change_pct - 0.25 * intraday_amp) * 0.4
+            else:
+                value_raw = -day_change_pct - 0.25 * intraday_amp
+
+            # ── 成长因子：中期（60日）+ 中短期（20日）价格趋势，反映业绩增长市场定价 ──
+            # 有腾讯历史收益率数据时使用真实数据，否则降级到当日成交额活跃度
+            if tencent_ret60d != 0.0 or tencent_ret20d != 0.0:
+                growth_raw = tencent_ret60d * 0.6 + tencent_ret20d * 0.4
+            else:
+                growth_raw = day_change_pct * 0.7 + (amount / 1e9) * 0.3
+
+            # ── 质量因子：高ROE = 盈利能力强（60%）+ 盘口质量（40%）──
+            if tencent_roe > 0:
+                roe_quality_raw = _clip(tencent_roe / 40.0 * 100, 0.0, 100.0)
+                quality_raw = roe_quality_raw * 0.6 + (-(spread_pct * 3.0 + intraday_amp)) * 0.4
+            else:
+                quality_raw = -(spread_pct * 3.0 + intraday_amp)
+
+            # ── 动量因子：股价在52周区间的相对位置（强势股特征）+ 短中期涨幅 ──
+            # 52周位置：越接近高点动量越强（中长期趋势跟随）
+            if tencent_high52 > tencent_low52 > 0 and price > 0:
+                week52_pos = _clip((price - tencent_low52) / (tencent_high52 - tencent_low52) * 100)
+                momentum_raw = week52_pos * 0.5 + tencent_ret20d * 0.3 + tencent_ret5d * 0.2
+            else:
+                momentum_raw = day_change_pct * 0.7 + (range_pos - 50.0) * 0.3
+
+            # ── 情绪因子：换手率（资金活跃度）+ 5日涨跌 + 今日量价配合 ──
+            # 换手率高 + 近5日上涨 + 今日盘口偏多 → 情绪热度高
+            if tencent_turnover > 0:
+                # 换手率归一化（A股正常0.3%~5%，>5%视为极度活跃）
+                turnover_score = _clip(tencent_turnover / 5.0 * 100, 0.0, 100.0)
+                sentiment_raw = turnover_score * 0.4 + tencent_ret5d * 0.4 + flow_signal * 20.0
+            else:
+                sentiment_raw = flow_signal * 100.0 + day_change_pct * 2.0 + volume_ratio * 0.05
+
             factor_rows.append({
                 "code": code,
                 "name": name,
@@ -1987,17 +2525,26 @@ def stock_screen():
                 "day_change_pct": day_change_pct,
                 "volume": volume,
                 "amount": amount,
+                "tencent_pe": tencent_pe,
+                "tencent_pb": tencent_pb,
+                "tencent_roe": tencent_roe,
+                "tencent_ret5d": tencent_ret5d,
+                "tencent_ret20d": tencent_ret20d,
+                "tencent_ret60d": tencent_ret60d,
+                "tencent_turnover": tencent_turnover,
+                "week52_high": tencent_high52,
+                "week52_low": tencent_low52,
                 "raw": {
-                    # 价值：更偏向“短线回调且波动不过大”
-                    "value": -day_change_pct - 0.25 * intraday_amp,
-                    # 成长：强势上涨 + 成交活跃
-                    "growth": day_change_pct * 0.7 + (amount / 1e9) * 0.3,
-                    # 质量：价差越小、振幅越低越好
-                    "quality": -(spread_pct * 3.0 + intraday_amp),
-                    # 动量：涨幅 + 日内位置
-                    "momentum": day_change_pct * 0.7 + (range_pos - 50.0) * 0.3,
-                    # 情绪：盘口偏多 + 量价配合
-                    "sentiment": flow_signal * 100.0 + day_change_pct * 2.0 + volume_ratio * 0.05,
+                    # 价值：低PE（基本面）+ 短线回调（量价）混合
+                    "value": value_raw,
+                    # 成长：60日+20日历史收益率（中期趋势）
+                    "growth": growth_raw,
+                    # 质量：高ROE（基本面）+ 盘口质量（量价）混合
+                    "quality": quality_raw,
+                    # 动量：52周区间位置 + 短中期涨幅（趋势跟随）
+                    "momentum": momentum_raw,
+                    # 情绪：换手率活跃度 + 5日涨跌 + 盘口偏多信号
+                    "sentiment": sentiment_raw,
                 },
             })
 
@@ -2039,14 +2586,30 @@ def stock_screen():
 
             base = base_map.get(code, {})
             industry = base.get("industry", "未知")
-            pe_val, roe_val = _resolve_pe_roe(row, base, industry)
+            # 优先使用腾讯接口拿到的真实 PE/ROE（避免 _resolve_pe_roe 回落到行业中位数）
+            tpe = row.get("tencent_pe", 0.0) or 0.0
+            trb = row.get("tencent_pb", 0.0) or 0.0
+            tr = row.get("tencent_roe", 0.0) or 0.0
+            if tpe > 0:
+                pe_val = round(tpe, 2)
+                roe_val = round(tr, 2) if tr > 0 else None
+                pe_estimated = False
+            else:
+                pe_val, roe_val = _resolve_pe_roe(row, base, industry)
+                pe_estimated = True
+            if roe_val is None or roe_val <= 0:
+                # 兜底：从 base 或行业中位数
+                _, roe_val = _resolve_pe_roe(row, base, industry)
+                if tr > 0:
+                    roe_val = round(tr, 2)
             item = {
                 "code": code,
                 "name": row["name"],
                 "industry": industry,
                 "price": round(row["price"], 2),
                 "pe": pe_val,
-                "roe": roe_val,
+                "pe_estimated": pe_estimated,
+                "roe": round(float(roe_val), 2) if roe_val is not None else None,
                 "change_pct": round(row["day_change_pct"], 2),
                 "volume": round(row["volume"], 2),
                 "amount": round(row["amount"], 2),
@@ -2061,28 +2624,107 @@ def stock_screen():
             }
 
             reasons = []
+            # 成长因子高：中期趋势向上（60日/20日收益率强）
             if item["scores"]["growth"] >= 65:
-                reasons.append(f"成交活跃、当日涨幅{item['change_pct']:+.2f}%")
+                r60 = row.get("tencent_ret60d", 0.0)
+                r20 = row.get("tencent_ret20d", 0.0)
+                if r60 != 0.0:
+                    reasons.append(f"中期趋势强劲，60日涨幅{r60:+.1f}%")
+                else:
+                    reasons.append(f"近期成交活跃，当日涨幅{item['change_pct']:+.2f}%")
+            # 动量因子高：价格接近52周高位，趋势强势
             if item["scores"]["momentum"] >= 65:
-                reasons.append("价格位于日内相对强势区间")
+                h52 = row.get("week52_high", 0.0)
+                l52 = row.get("week52_low", 0.0)
+                if h52 > l52 > 0 and price > 0:
+                    pos_pct = round((price - l52) / (h52 - l52) * 100)
+                    reasons.append(f"价格处于52周区间高位（{pos_pct}%分位），趋势强势")
+                else:
+                    reasons.append("价格位于日内相对强势区间")
+            # 质量因子高：ROE高，盈利能力强
             if item["scores"]["quality"] >= 65:
-                reasons.append("盘口价差较小，流动性较好")
+                troe = row.get("tencent_roe", 0.0)
+                if troe > 0:
+                    reasons.append(f"盈利能力突出，ROE估算{troe:.1f}%")
+                else:
+                    reasons.append("盘口价差较小，流动性较好")
+            # 价值因子高：PE低，估值便宜
             if item["scores"]["value"] >= 65:
-                reasons.append("短线回撤后估值性价比提升")
-            item["ai_reason"] = "、".join(reasons[:3]) if reasons else "信号中性，建议结合基本面二次筛选"
+                tpe = row.get("tencent_pe", 0.0)
+                if tpe > 0:
+                    reasons.append(f"估值合理偏低，PE约{tpe:.1f}倍")
+                else:
+                    reasons.append("短线回撤后估值性价比提升")
+            # 情绪因子高：换手率高，资金活跃
+            if item["scores"]["sentiment"] >= 65:
+                turn = row.get("tencent_turnover", 0.0)
+                r5 = row.get("tencent_ret5d", 0.0)
+                if turn > 0:
+                    reasons.append(f"资金活跃度高，换手率{turn:.2f}%，5日涨幅{r5:+.1f}%")
+                else:
+                    reasons.append("盘口买盘偏多，市场情绪积极")
+            item["ai_reason"] = "；".join(reasons[:3]) if reasons else "信号中性，建议结合基本面二次筛选"
+            item["ai_reason_engine"] = "rules"
 
             scored_stocks.append(item)
 
         scored_stocks.sort(key=lambda x: x["scores"]["total"], reverse=True)
+
+        # Top 5：尝试用 AkShare 财务指标补充准确 ROE
+        _ROE_FIELDS = ["净资产收益率", "净资产收益率(加权)", "ROEJQ", "净资产收益率(摊薄)"]
+        for top_item in scored_stocks[:5]:
+            if base_map.get(top_item["code"]):
+                continue  # 内置样本已有准确值，跳过
+            try:
+                df_fin = _call_with_timeout(
+                    lambda c=top_item["code"]: ak.stock_financial_analysis_indicator(
+                        symbol=c, start_year="2023"
+                    ),
+                    timeout_sec=5,
+                )
+                if df_fin is not None and not df_fin.empty:
+                    latest = df_fin.iloc[-1]
+                    for field in _ROE_FIELDS:
+                        if field in latest.index:
+                            try:
+                                roe_raw = str(latest[field]).replace("%", "").replace(",", "").strip()
+                                roe_f = float(roe_raw)
+                                if abs(roe_f) > 0:
+                                    top_item["roe"] = round(roe_f, 2)
+                                    break
+                            except Exception:
+                                continue
+            except Exception:
+                pass
+
+        # Top 5：调用 Kimi 批量生成选股理由
+        reason_engine = "rules"
+        reason_kimi_error = ""
+        try:
+            kimi_reasons, reason_kimi_error, reason_engine = generate_stock_reasons_with_kimi(
+                scored_stocks[:5], market_bundle={}
+            )
+            for top_item in scored_stocks[:5]:
+                if top_item["code"] in kimi_reasons:
+                    top_item["ai_reason"] = kimi_reasons[top_item["code"]]
+                    top_item["ai_reason_engine"] = "kimi"
+        except Exception as ke:
+            reason_kimi_error = str(ke)
+            reason_engine = "kimi_failed"
+
         final_items = scored_stocks[:80]
         STOCK_SCREEN_RESULT_CACHE["loaded_at"] = datetime.now()
         STOCK_SCREEN_RESULT_CACHE["items"] = final_items
-        return jsonify({"stocks": final_items})
+        return jsonify({
+            "stocks": final_items,
+            "reason_engine": reason_engine,
+            "reason_kimi_error": reason_kimi_error,
+        })
     except Exception as e:
         print(f"智能选股实时数据获取失败: {e}")
         cached = STOCK_SCREEN_RESULT_CACHE.get("items") or []
         if cached:
-            return jsonify({"stocks": cached})
+            return jsonify({"stocks": cached, "reason_engine": "rules", "reason_kimi_error": "使用缓存数据"})
         fallback = []
         for idx, s in enumerate(STOCKS[:20]):
             fallback.append({
@@ -2104,69 +2746,314 @@ def stock_screen():
                     "total": round(50 + (20 - idx) * 0.5, 1),
                 },
                 "ai_reason": "实时行情暂不可用，当前为基础因子估算结果",
+                "ai_reason_engine": "rules",
             })
-        return jsonify({"stocks": fallback})
+        return jsonify({"stocks": fallback, "reason_engine": "rules", "reason_kimi_error": "实时行情不可用"})
 
 
 @app.route("/api/portfolio")
 def get_portfolio():
-    holdings = _get_demo_holdings()
-
-    total_cost = sum(h["shares"] * h["cost"] for h in holdings)
-    total_current = sum(h["shares"] * h["current"] for h in holdings)
-    total_profit = total_current - total_cost
-    total_return = (total_profit / total_cost) * 100
-
-    for h in holdings:
-        h["profit"] = round((h["current"] - h["cost"]) * h["shares"], 2)
-        h["return_pct"] = round((h["current"] - h["cost"]) / h["cost"] * 100, 2)
-        h["market_value"] = round(h["current"] * h["shares"], 2)
-
-    history = generate_portfolio_history()
-
-    industry_dist = {}
-    for h in holdings:
-        stock = next((s for s in STOCKS if s["code"] == h["code"]), None)
-        if stock:
-            ind = stock["industry"]
-            industry_dist[ind] = industry_dist.get(ind, 0) + h["weight"]
-
+    holdings = _read_holdings()
+    history = generate_portfolio_history(holdings=holdings)
     return jsonify({
         "holdings": holdings,
-        "total_value": round(total_current, 2),
-        "total_cost": round(total_cost, 2),
-        "total_profit": round(total_profit, 2),
-        "total_return": round(total_return, 2),
         "history": history,
-        "risk_metrics": {
-            "sharpe_ratio": 1.35,
-            "max_drawdown": -12.5,
-            "volatility": 15.8,
-            "beta": 0.85,
-            "alpha": 3.2,
-            "var_95": -2.8,
-            "tracking_error": 5.2,
-        },
-        "industry_distribution": [{"name": k, "value": v} for k, v in industry_dist.items()],
-        "rebalance_alerts": [
-            {"type": "warning", "message": "贵州茅台持仓占比25%，超过单一标的建议上限20%，建议适当减仓"},
-            {"type": "info", "message": "组合整体Beta为0.85，低于基准，防御性较强"},
-            {"type": "success", "message": "组合夏普比率1.35，风险调整后收益表现良好"},
-        ],
     })
 
 
-def _get_demo_holdings():
-    return [
-        {"code": "600519", "name": "贵州茅台", "asset_type": "股票", "shares": 100, "unit": "股", "cost": 1620.00, "current": 1680.50, "weight": 18},
-        {"code": "002594", "name": "比亚迪", "asset_type": "股票", "shares": 500, "unit": "股", "cost": 268.00, "current": 285.60, "weight": 14},
-        {"code": "600036", "name": "招商银行", "asset_type": "股票", "shares": 2000, "unit": "股", "cost": 33.50, "current": 35.80, "weight": 10},
-        {"code": "300750", "name": "宁德时代", "asset_type": "股票", "shares": 300, "unit": "股", "cost": 205.00, "current": 218.90, "weight": 10},
-        {"code": "000333", "name": "美的集团", "asset_type": "股票", "shares": 800, "unit": "股", "cost": 65.00, "current": 68.20, "weight": 8},
-        {"code": "601899", "name": "紫金矿业", "asset_type": "股票", "shares": 3000, "unit": "股", "cost": 16.80, "current": 18.20, "weight": 8},
-        {"code": "005827", "name": "易方达蓝筹精选混合", "asset_type": "基金", "shares": 20000, "unit": "份", "cost": 1.61, "current": 1.74, "weight": 17},
-        {"code": "510300", "name": "沪深300ETF", "asset_type": "基金", "shares": 15000, "unit": "份", "cost": 3.92, "current": 4.03, "weight": 15},
-    ]
+@app.route("/api/holdings", methods=["GET"])
+def get_holdings():
+    holdings = _read_holdings()
+    holdings = _refresh_holdings_prices(holdings)
+    _write_holdings(holdings)
+    return jsonify(holdings)
+
+@app.route("/api/holdings", methods=["POST"])
+def add_holding():
+    payload = request.json or {}
+    holdings = _read_holdings()
+    code = str(payload.get("code", "")).strip()
+    asset_type = str(payload.get("asset_type", "股票")).strip()
+    if not code:
+        return jsonify({"ok": False, "message": "代码不能为空"}), 400
+    if any(h["code"] == code and h["asset_type"] == asset_type for h in holdings):
+        return jsonify({"ok": False, "message": "该资产已存在，请先删除后再添加"}), 400
+    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    item = {
+        "code": code,
+        "name": str(payload.get("name", code)).strip(),
+        "asset_type": asset_type,
+        "shares": float(payload.get("shares", 0)),
+        "unit": str(payload.get("unit", "股" if asset_type == "股票" else "份")),
+        "cost": float(payload.get("cost", 0)),
+        "current": float(payload.get("current", payload.get("cost", 0))),
+        "amount": float(payload.get("amount", 0)),
+        "profit": float(payload.get("profit", 0)),
+        "created_at": str(payload.get("created_at", now_str)),
+    }
+    
+    # 记录用户初始录入的金额和收益，方便我们在 refresh 时反推份额
+    if asset_type == "基金" and item.get("amount", 0) > 0:
+        item["input_amount"] = item["amount"]
+        item["input_profit"] = item["profit"]
+        item["needs_share_calc"] = True
+    
+    # 计算衍生字段
+    item["market_value"] = round(item["shares"] * item["current"], 2)
+    item["return_pct"] = round((item["current"] - item["cost"]) / item["cost"] * 100, 2) if item["cost"] > 0 else 0.0
+    
+    holdings.append(item)
+    # 尝试立即获取一次最新行情并更新份额（如果需要）
+    holdings = _refresh_holdings_prices(holdings)
+    _write_holdings(holdings)
+    
+    # 返回更新后的刚刚添加的那个 holding
+    updated_item = next((h for h in holdings if h["code"] == code and h["asset_type"] == asset_type), item)
+    return jsonify({"ok": True, "holding": updated_item})
+
+
+@app.route("/api/holdings/<code>", methods=["DELETE"])
+def delete_holding(code):
+    asset_type = str(request.args.get("asset_type", "")).strip()
+    holdings = _read_holdings()
+    before = len(holdings)
+    holdings = [h for h in holdings if not (h["code"] == code and (not asset_type or h["asset_type"] == asset_type))]
+    if len(holdings) == before:
+        return jsonify({"ok": False, "message": "未找到该持仓"}), 404
+    _write_holdings(holdings)
+    return jsonify({"ok": True})
+
+
+@app.route("/api/holdings/<code>", methods=["PUT"])
+def update_holding(code):
+    payload = request.json or {}
+    asset_type = str(payload.get("asset_type", "")).strip()
+    holdings = _read_holdings()
+    target = next((h for h in holdings if h["code"] == code and (not asset_type or h["asset_type"] == asset_type)), None)
+    if not target:
+        return jsonify({"ok": False, "message": "未找到该持仓"}), 404
+        
+    for field in ["name", "shares", "unit", "cost", "current", "amount", "profit"]:
+        if field in payload:
+            target[field] = payload[field]
+            
+    # 如果用户修改了金额/收益，也记录下来需要重新计算真实份额
+    if asset_type == "基金" and "amount" in payload and "profit" in payload:
+        target["input_amount"] = float(payload["amount"])
+        target["input_profit"] = float(payload["profit"])
+        target["needs_share_calc"] = True
+            
+    target["market_value"] = round(float(target.get("shares", 0)) * float(target.get("current", 0)), 2)
+    target["return_pct"] = round((float(target.get("current", 0)) - float(target.get("cost", 0))) / float(target.get("cost", 1)) * 100, 2)
+    
+    # 尝试立即获取一次最新行情并更新份额（如果需要）
+    holdings = _refresh_holdings_prices(holdings)
+    _write_holdings(holdings)
+    
+    updated_target = next((h for h in holdings if h["code"] == code and (not asset_type or h["asset_type"] == asset_type)), target)
+    return jsonify({"ok": True, "holding": updated_target})
+
+
+@app.route("/api/portfolio-history")
+def portfolio_history_api():
+    """
+    返回用户持仓的真实收益率曲线数据。
+    请求参数: ?days=180 (近半年) 或 365 (近一年)
+    响应: {dates, portfolio_returns, benchmark_returns}
+    """
+    days = request.args.get("days", type=int)
+    holdings = _read_holdings()
+    history = generate_portfolio_history(holdings=holdings, days=days)
+    if not history:
+        return jsonify({"dates": [], "portfolio_returns": [], "benchmark_returns": []})
+
+    # 找到所有持仓中最早的日期
+    earliest_date_str = None
+    if holdings:
+        dates = []
+        for h in holdings:
+            ca = h.get("created_at", "")
+            if ca:
+                dates.append(ca[:10])
+        if dates:
+            earliest_date_str = min(dates)
+            
+    if earliest_date_str is None:
+        earliest_date_str = history[0]["date"]
+
+    # benchmark 以第一天为基准归一化
+    base_bench = float(history[0]["benchmark"]) if history else 1.0
+    dates = [r["date"] for r in history]
+    bench_series = [float(r["benchmark"]) for r in history]
+    benchmark_returns = [round((v / base_bench - 1.0) * 100, 2) for v in bench_series]
+
+    # 实际总收益率（终点值）
+    total_cost = sum(h.get("shares", 0) * h.get("cost", 0) for h in holdings)
+    total_current = sum(h.get("shares", 0) * h.get("current", 0) for h in holdings)
+    actual_total_return = (total_current - total_cost) / total_cost * 100 if total_cost > 0 else 0.0
+
+    portfolio_returns = []
+    
+    # 截取 active 部分进行缩放，因为实际收益率是在这个 active 区间内产生的
+    active_history = [r for r in history if r["date"] >= earliest_date_str]
+    
+    if not active_history:
+        portfolio_returns = [0.0 for _ in history]
+    else:
+        base_nav = float(active_history[0]["nav"])
+        nav_end = float(active_history[-1]["nav"])
+        simulated_return = (nav_end / base_nav - 1.0) * 100 if base_nav > 0 else 0.0
+        
+        # 计算缩放比例，如果模拟收益几乎为0，我们退化为将实际收益平摊到每天
+        if abs(simulated_return) < 0.001:
+            step = actual_total_return / max(1, len(active_history) - 1)
+            for r in history:
+                if r["date"] < earliest_date_str:
+                    portfolio_returns.append(0.0)
+                else:
+                    idx = active_history.index(r)
+                    portfolio_returns.append(round(idx * step, 2))
+        else:
+            scale = actual_total_return / simulated_return
+            for r in history:
+                if r["date"] < earliest_date_str:
+                    portfolio_returns.append(0.0)
+                else:
+                    v = float(r["nav"])
+                    val = round(((v / base_nav - 1.0) * 100) * scale, 2)
+                    portfolio_returns.append(val)
+
+    if portfolio_returns:
+        portfolio_returns[0] = 0.0
+    if benchmark_returns:
+        benchmark_returns[0] = 0.0
+
+    return jsonify({
+        "dates": dates,
+        "portfolio_returns": portfolio_returns,
+        "benchmark_returns": benchmark_returns,
+        "start_date": earliest_date_str if earliest_date_str else "",
+        "total_return": round(actual_total_return, 2),
+    })
+
+
+_HOLDINGS_FILE = os.path.join(os.path.dirname(__file__), "holdings.json")
+
+
+def _refresh_holdings_prices(holdings):
+    if not holdings:
+        return holdings
+    symbols = []
+    for h in holdings:
+        code = str(h.get("code", "")).strip()
+        if not code:
+            continue
+        if h.get("asset_type") == "基金":
+            symbols.append(f"f_{code}")
+        else:
+            prefix = "sh" if code.startswith(("6", "9")) else "sz"
+            symbols.append(f"{prefix}{code}")
+    
+    if not symbols:
+        return holdings
+
+    try:
+        resp = requests.get(
+            f"http://hq.sinajs.cn/list={','.join(symbols)}",
+            timeout=10,
+            headers={"Referer": "https://finance.sina.com.cn/"},
+        )
+        resp.encoding = "gbk"
+        if resp.status_code == 200 and resp.text:
+            price_map = {}
+            for line in resp.text.splitlines():
+                if "=\"" not in line:
+                    continue
+                left, right = line.split("=\"", 1)
+                symbol = left.split("hq_str_")[-1].strip()
+                payload = right.rstrip("\";").strip()
+                parts = payload.split(",")
+                
+                if symbol.startswith("f_"):
+                    # Fund
+                    if len(parts) >= 4:
+                        code = symbol[2:]
+                        current = float(parts[1])
+                        prev_close = float(parts[3])
+                        date = parts[4] if len(parts) >= 5 else ""
+                        price_map[code] = {"current": current, "prev_close": prev_close, "date": date}
+                else:
+                    # Stock
+                    if len(parts) >= 10:
+                        code = symbol[2:]
+                        current = float(parts[3])
+                        prev_close = float(parts[2])
+                        date = parts[30] if len(parts) >= 31 else ""
+                        if current > 0:
+                            price_map[code] = {"current": current, "prev_close": prev_close, "date": date}
+                            
+            for h in holdings:
+                code = str(h.get("code", "")).strip()
+                if code in price_map:
+                    h["current"] = price_map[code]["current"]
+                    h["prev_close"] = price_map[code]["prev_close"]
+                    h["date"] = price_map[code]["date"]
+                    
+                    # 只有当这是用户刚输入的，并且还没推算出真实份额时，才执行推算逻辑
+                    if h.get("needs_share_calc"):
+                        # 用户输入的 amount 是当前持有金额（市值）
+                        input_amount = float(h.get("input_amount", 0))
+                        input_profit = float(h.get("input_profit", 0))
+                        current_value = input_amount
+                        input_cost = input_amount - input_profit
+                        
+                        if current_value > 0 and h["current"] > 0:
+                            # 根据当前的真实净值反推实际份额
+                            h["shares"] = current_value / h["current"]
+                            # 根据推算出的总成本，反推买入时的成本均价
+                            if h["shares"] > 0:
+                                h["cost"] = input_cost / h["shares"]
+                        
+                        # 标记推算完成
+                        h["needs_share_calc"] = False
+                    
+                    shares = float(h.get("shares", 0))
+                    cost = float(h.get("cost", 0))
+                    
+                    # 自动更新收盘时的各项指标
+                    h["market_value"] = round(shares * h["current"], 2)
+                    h["amount"] = h["market_value"] # amount通常用于显示当前持有金额（市值）
+                    h["profit"] = round(shares * (h["current"] - cost), 2)
+                    h["return_pct"] = round((h["current"] - cost) / cost * 100, 2) if cost else 0
+                    
+                    # 当日收益/收益率
+                    prev = h["prev_close"]
+                    h["daily_profit"] = round(shares * (h["current"] - prev), 2)
+                    h["daily_return_pct"] = round((h["current"] - prev) / prev * 100, 2) if prev else 0
+                    
+    except Exception as e:
+        app.logger.error(f"Failed to refresh holdings prices: {e}")
+        
+    return holdings
+
+def _read_holdings():
+    try:
+        if os.path.exists(_HOLDINGS_FILE):
+            with open(_HOLDINGS_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                if isinstance(data, list):
+                    return data
+    except Exception:
+        pass
+    return []
+
+
+def _write_holdings(holdings):
+    try:
+        with open(_HOLDINGS_FILE, "w", encoding="utf-8") as f:
+            json.dump(holdings, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        app.logger.error(f"Failed to write holdings: {e}")
 
 
 def _extract_hold_duration(text):
@@ -2685,9 +3572,11 @@ def _build_kimi_payload(user_message, asset=None, holdings_override=None):
 
 
 def _call_kimi(user_message, asset=None, holdings_override=None):
-    api_key = os.getenv("KIMI_API_KEY", "").strip()
+    from dotenv_local import get_kimi_api_key
+
+    api_key = get_kimi_api_key()
     if not api_key:
-        return None, "KIMI_API_KEY 未配置"
+        return None, "KIMI_API_KEY 未配置（可在 .env 中设置 KIMI_API_KEY 或 MOONSHOT_API_KEY）"
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
@@ -3286,6 +4175,634 @@ def portfolio_ocr_import():
             "message": f"OCR识别失败: {e}",
             "items": [],
         }), 500
+
+
+def _pe_to_valuation_pct(pe_val):
+    """将 PE 值映射到估值百分位（0-99%）。PE<15 低估，15-30 适中，>30 高估。"""
+    if pe_val <= 0:
+        return None
+    if pe_val < 10:
+        return round(pe_val / 10 * 20, 1)
+    if pe_val < 15:
+        return round(20 + (pe_val - 10) / 5 * 10, 1)
+    if pe_val < 25:
+        return round(30 + (pe_val - 15) / 10 * 20, 1)
+    if pe_val < 40:
+        return round(50 + (pe_val - 25) / 15 * 20, 1)
+    return min(round(70 + (pe_val - 40) / 30 * 25, 1), 99)
+
+
+def _parse_pct_str(val):
+    """解析 '15.38%' / 'False' / 0.1538 等多种格式为浮点数，无效返回 None。"""
+    if val is None:
+        return None
+    s = str(val).strip().replace('%', '').replace(',', '')
+    if s.lower() in ('false', 'true', '--', 'nan', ''):
+        return None
+    try:
+        return float(s)
+    except ValueError:
+        return None
+
+
+def _get_stock_kline_sina(code):
+    """通过新浪接口获取股票日线数据（含 close/turnover），可用性更好。"""
+    # 判断市场前缀
+    prefix = 'sh' if code.startswith('6') else 'sz'
+    return ak.stock_zh_a_daily(symbol=f"{prefix}{code}", adjust="qfq")
+
+
+def _fund_open_nav_series_sorted(code):
+    """
+    东财开放式/联接/QDII 基金净值序列（按日期升序，仅数值列）。
+    依次尝试单位净值、累计净值走势。
+    """
+    import pandas as pd
+
+    sym = str(code).strip().zfill(6)[-6:]
+    if not sym.isdigit():
+        return None
+    for indicator in ("单位净值走势", "累计净值走势"):
+        try:
+            df = ak.fund_open_fund_info_em(symbol=sym, indicator=indicator)
+            if df is None or df.empty:
+                continue
+            col_date = "净值日期" if "净值日期" in df.columns else df.columns[0]
+            if "单位净值" in df.columns:
+                col_val = "单位净值"
+            elif "累计净值" in df.columns:
+                col_val = "累计净值"
+            else:
+                col_val = df.columns[1]
+            tmp = pd.DataFrame({
+                "d": pd.to_datetime(df[col_date], errors="coerce"),
+                "v": pd.to_numeric(df[col_val], errors="coerce"),
+            })
+            tmp = tmp.dropna().sort_values("d")
+            if tmp.empty or len(tmp) < 2:
+                continue
+            ser = tmp["v"].reset_index(drop=True)
+            return ser
+        except Exception:
+            continue
+    return None
+
+
+def _fund_etf_close_series_sina_dual(code):
+    """
+    场内基金（ETF/LOF 等）新浪日收盘价序列，按时间升序。
+    同时尝试 sh/sz 前缀，解决 520/511 等沪市跨境 ETF 及 LOF 归属误判。
+    """
+    sym = str(code).strip().zfill(6)[-6:]
+    if not sym.isdigit() or len(sym) != 6:
+        return None
+    best = None
+    best_len = 0
+    for prefix in ("sh", "sz"):
+        try:
+            df = ak.fund_etf_hist_sina(symbol=f"{prefix}{sym}")
+            if df is None or df.empty or "close" not in df.columns:
+                continue
+            s = df["close"].dropna().astype(float).reset_index(drop=True)
+            if len(s) > best_len:
+                best, best_len = s, len(s)
+        except Exception:
+            continue
+    return best
+
+
+def _fund_select_price_series_for_metrics(code, fund_name=""):
+    """
+    为指标计算选择价格/净值序列：优先东财场外净值（联接、QDII 与持仓一致），
+    不足时再使用新浪场内 K 线（覆盖 520/511 等原 is_etf 未包含的 ETF）。
+    """
+    nav = _fund_open_nav_series_sorted(code)
+    etf = _fund_etf_close_series_sina_dual(code)
+    nlen = len(nav) if nav is not None else 0
+    elen = len(etf) if etf is not None else 0
+    # 名称含「联接」时强制优先场外净值，避免误用场内 ETF 曲线
+    if "联接" in (fund_name or "") and nlen >= 5:
+        return nav
+    if nlen >= 20:
+        return nav
+    if elen >= 20:
+        return etf
+    if nlen >= 5:
+        return nav
+    if elen >= 5:
+        return etf
+    return nav if nlen else etf
+
+
+def _compute_holding_indicators(code, asset_type, current_price, cost_price, shares, fund_name=""):
+    """
+    为单只持仓计算辅助决策指标（估值百分位、盈利增速、换手率、偏离度）。
+    股票：akshare 新浪日线 + 同花顺财务摘要 + 东财个股信息
+    基金：东财净值（联接/QDII）+ 新浪场内 K 线双源，自动择优；覆盖 520/511 等跨境 ETF
+    """
+    result = {
+        "asset_type": asset_type,
+        "valuation_pct": None,
+        "profit_growth": None,   # 股票专用：近1年净利润增速
+        "turnover": None,        # 股票专用：近5日均换手率
+        "return_1y": None,       # 基金专用：近1年收益率
+        "max_drawdown": None,    # 基金专用：近1年最大回撤
+        "deviation": None,       # 通用：偏离20日均线
+    }
+
+    current = float(current_price or 0)
+    cost = float(cost_price or 0)
+    return_pct = ((current - cost) / cost * 100) if cost > 0 else 0
+
+    if asset_type == '股票':
+        # ── 1. 估值百分位：东财个股信息取 PE ──
+        try:
+            df_info = ak.stock_individual_info_em(symbol=code)
+            # 该接口无 PE，跳过，后续用财务摘要计算
+        except Exception:
+            pass
+
+        # ── 2. 盈利增速：同花顺财务摘要按年度，取最新一年 ──
+        try:
+            df_fin = ak.stock_financial_abstract_ths(symbol=code, indicator="按年度")
+            if not df_fin.empty and '净利润同比增长率' in df_fin.columns:
+                # iloc[-1] 是最新年度（数据按时间正序排列）
+                val = df_fin['净利润同比增长率'].iloc[-1]
+                g = _parse_pct_str(val)
+                if g is not None:
+                    result['profit_growth'] = round(g, 1)
+        except Exception:
+            pass
+
+        # ── 3. 换手率(近5日均) + 4. 偏离度(20日均线)：新浪日线接口 ──
+        try:
+            df_kline = _get_stock_kline_sina(code)
+            if not df_kline.empty:
+                # 换手率字段为 turnover（小数，如 0.001613），乘以100转为百分比
+                if 'turnover' in df_kline.columns:
+                    recent_5 = df_kline['turnover'].tail(5).dropna().astype(float)
+                    if not recent_5.empty:
+                        result['turnover'] = round(float(recent_5.mean()) * 100, 3)
+
+                # 偏离度：取最近30行计算20日均线
+                if 'close' in df_kline.columns and len(df_kline) >= 20:
+                    closes = df_kline['close'].astype(float)
+                    ma20 = float(closes.tail(20).mean())
+                    last_close = float(closes.iloc[-1])
+                    if ma20 > 0:
+                        result['deviation'] = round((last_close - ma20) / ma20 * 100, 2)
+
+                # 估值百分位回退：用当前价 / 20日均线作为相对估值代理
+                if result['valuation_pct'] is None and 'close' in df_kline.columns and len(df_kline) >= 60:
+                    closes_60 = df_kline['close'].tail(60).astype(float)
+                    last_c = float(closes_60.iloc[-1])
+                    low_60 = float(closes_60.min())
+                    high_60 = float(closes_60.max())
+                    if high_60 > low_60:
+                        pct = (last_c - low_60) / (high_60 - low_60) * 100
+                        result['valuation_pct'] = round(pct, 1)
+        except Exception:
+            pass
+
+        # ── 5. 同花顺财务摘要补充估值百分位（用 EPS 与股价推算 PE）──
+        if result['valuation_pct'] is None:
+            try:
+                df_fin2 = ak.stock_financial_abstract_ths(symbol=code, indicator="按年度")
+                if not df_fin2.empty and '基本每股收益' in df_fin2.columns:
+                    eps_val = _parse_pct_str(df_fin2['基本每股收益'].iloc[-1])
+                    if eps_val and eps_val > 0 and current > 0:
+                        pe = current / eps_val
+                        result['valuation_pct'] = _pe_to_valuation_pct(pe)
+            except Exception:
+                pass
+
+    elif asset_type == '基金':
+        result['asset_type'] = '基金'
+
+        def _calc_fund_metrics(series):
+            """给定净值/价格 Series（时间升序），返回 (valuation_pct, return_1y, max_drawdown, deviation)。"""
+            s = series.astype(float).dropna()
+            if s.empty:
+                return None, None, None, None
+            v_pct, ret_1y, max_dd, dev = None, None, None, None
+
+            win = min(60, len(s))
+            s60 = s.tail(win)
+            lo, hi = float(s60.min()), float(s60.max())
+            last = float(s.iloc[-1])
+            if hi > lo:
+                v_pct = round((last - lo) / (hi - lo) * 100, 1)
+            else:
+                v_pct = 50.0
+
+            win252 = min(252, len(s))
+            s252 = s.tail(win252)
+            if len(s252) >= 20:
+                start_val = float(s252.iloc[0])
+                if start_val > 0:
+                    ret_1y = round((last - start_val) / start_val * 100, 2)
+
+            if len(s252) >= 5:
+                peak = s252.expanding().max()
+                dd = (s252 - peak) / peak * 100
+                max_dd = round(float(dd.min()), 2)
+
+            if len(s) >= 20:
+                ma20 = float(s.tail(20).mean())
+                if ma20 > 0:
+                    dev = round((last - ma20) / ma20 * 100, 2)
+
+            return v_pct, ret_1y, max_dd, dev
+
+        try:
+            px = _fund_select_price_series_for_metrics(code, fund_name=fund_name or "")
+            if px is not None and len(px) >= 5:
+                v_pct, ret_1y, max_dd, dev = _calc_fund_metrics(px)
+                result['valuation_pct'] = v_pct
+                result['return_1y'] = ret_1y
+                result['max_drawdown'] = max_dd
+                result['deviation'] = dev
+        except Exception:
+            pass
+
+        # 基金无盈利增速、无换手率
+        result['profit_growth'] = None
+        result['turnover'] = None
+
+    # ── 兜底：估值百分位仍空时，用持仓收益率粗估 ──
+    if result['valuation_pct'] is None:
+        if return_pct <= -20:
+            result['valuation_pct'] = 12.0
+        elif return_pct <= -10:
+            result['valuation_pct'] = round(12 + (return_pct + 20) * 1.8, 1)
+        elif return_pct <= 0:
+            result['valuation_pct'] = round(30 + return_pct * 0.8, 1)
+        elif return_pct <= 20:
+            result['valuation_pct'] = round(30 + return_pct * 1.5, 1)
+        elif return_pct <= 50:
+            result['valuation_pct'] = round(60 + (return_pct - 20) * 1.0, 1)
+        else:
+            result['valuation_pct'] = min(round(90 + (return_pct - 50) * 0.2, 1), 99)
+
+    return result
+
+
+@app.route("/api/holding-indicators", methods=["POST"])
+def holding_indicators():
+    """批量计算各持仓的决策辅助指标。"""
+    data, jerr = _safe_request_json()
+    if jerr:
+        return jsonify({"ok": False, "error": jerr}), 400
+    data = data or {}
+    holdings = data.get("holdings", [])
+    indicators = {}
+    for h in holdings:
+        code = str(h.get("code", "")).strip()
+        if not code:
+            continue
+        asset_type = h.get("asset_type", "股票")
+        try:
+            ind = _compute_holding_indicators(
+                code=code,
+                asset_type=asset_type,
+                current_price=h.get("current", 0),
+                cost_price=h.get("cost", 0),
+                shares=h.get("shares", 0),
+                fund_name=str(h.get("name", "") or ""),
+            )
+        except Exception as e:
+            ind = {"valuation_pct": None, "profit_growth": None, "turnover": None, "deviation": None}
+        indicators[code] = ind
+    return jsonify({"ok": True, "indicators": indicators})
+
+
+@app.route("/api/kimi-valuation", methods=["POST"])
+def kimi_valuation():
+    """调用 Kimi 对单只持仓进行估值深度分析。"""
+    from dotenv_local import get_kimi_api_key, get_kimi_model
+
+    data, jerr = _safe_request_json()
+    if jerr:
+        return jsonify({"error": jerr}), 400
+    data = data or {}
+    code = str(data.get("code", "")).strip()
+    name = str(data.get("name", "")).strip()
+    asset_type = data.get("asset_type", "股票")
+    indicators = data.get("indicators", {})
+    holding = data.get("holding", {})
+
+    api_key = get_kimi_api_key()
+    if not api_key:
+        return jsonify({"error": "KIMI_API_KEY 未配置，请在 .env 文件中添加"})
+
+    is_fund = asset_type == '基金'
+
+    # 构建指标描述（股票与基金用不同字段）
+    ind_desc_parts = []
+    if indicators.get("valuation_pct") is not None:
+        ind_desc_parts.append(f"估值百分位约 {indicators['valuation_pct']:.1f}%（越低越便宜）")
+    if is_fund:
+        if indicators.get("return_1y") is not None:
+            ind_desc_parts.append(f"近1年收益率约 {indicators['return_1y']:+.2f}%")
+        if indicators.get("max_drawdown") is not None:
+            ind_desc_parts.append(f"近1年最大回撤约 {indicators['max_drawdown']:.2f}%")
+    else:
+        if indicators.get("profit_growth") is not None:
+            ind_desc_parts.append(f"近一年盈利增速约 {indicators['profit_growth']:+.1f}%")
+        if indicators.get("turnover") is not None:
+            ind_desc_parts.append(f"近5日平均换手率约 {indicators['turnover']:.3f}%")
+    if indicators.get("deviation") is not None:
+        ind_desc_parts.append(f"当前价格偏离20日均线约 {indicators['deviation']:+.2f}%")
+    ind_desc = "；".join(ind_desc_parts) if ind_desc_parts else "暂无指标数据"
+
+    holding_desc_parts = []
+    if holding.get("cost"):
+        holding_desc_parts.append(f"成本价约 {holding['cost']:.4f}")
+    if holding.get("current"):
+        holding_desc_parts.append(f"当前价约 {holding['current']:.4f}")
+    if holding.get("return_pct") is not None:
+        holding_desc_parts.append(f"当前持有收益率 {holding['return_pct']:+.2f}%")
+    holding_desc = "，".join(holding_desc_parts) if holding_desc_parts else ""
+
+    if is_fund:
+        analysis_dimensions = """\
+1. **估值判断**：结合估值百分位（净值在近60日区间的位置），分析当前买入时机是否合适，并说明对基金更适合用哪种估值方式（如分位点、净值折溢价、申万行业指数估值等）及原因；
+2. **收益与风险**：结合近1年收益率和最大回撤，评估该基金的风险收益比；
+3. **均线信号**：结合偏离度，分析近期净值走势与买卖时机；
+4. **操作建议**：综合以上，给出明确的加仓 / 持有 / 赎回建议及操作逻辑；
+5. **风险提示**：列出该基金当前主要风险点（1-2条，如赛道集中、流动性等）。"""
+    else:
+        analysis_dimensions = """\
+1. **估值判断**：结合估值百分位，分析当前估值水平是否合理，并说明对于该股票更适合用哪种估值指标（如 PE、PB、PS、股息率、EV/EBITDA 等）及原因；
+2. **成长性判断**：结合盈利增速，分析企业成长趋势与业绩质量；
+3. **量价信号**：结合换手率与偏离度，分析近期市场情绪与买卖时机；
+4. **操作建议**：综合以上，给出明确的加仓 / 持有 / 减仓建议及合理的操作逻辑；
+5. **风险提示**：列出该股票当前主要风险点（1-2条）。"""
+
+    prompt = f"""你是一名专业的A股/基金投资分析师。请对以下持仓进行深度分析，并给出加仓或减仓的参考建议：
+
+**标的信息**
+- 名称：{name}（代码：{code}，类型：{asset_type}）
+- 持仓情况：{holding_desc if holding_desc else '未知'}
+
+**当前指标数据**
+{ind_desc}
+
+**请从以下维度给出分析（每条150-200字，语言简洁专业）：**
+{analysis_dimensions}
+
+请直接给出分析，无需重复标的名称，语气专业但通俗易懂。"""
+
+    try:
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        }
+        model_id = get_kimi_model(default=KIMI_MODEL)
+        payload = {
+            "model": model_id,
+            "messages": [
+                {"role": "system", "content": "你是一名专业的证券投资分析师，擅长A股和基金的估值分析。"},
+                {"role": "user", "content": prompt}
+            ],
+            "temperature": 0.4,
+        }
+        api_url = (os.getenv("KIMI_API_URL") or KIMI_API_URL).strip()
+        resp = requests.post(api_url, headers=headers, json=payload, timeout=30)
+        if resp.status_code == 429:
+            return jsonify({"error": "Kimi 请求频率过高，请1分钟后再试"})
+        if resp.status_code != 200:
+            detail = _moonshot_api_error_detail(resp)
+            if resp.status_code == 401:
+                base = "API 密钥无效或已过期（HTTP 401）。请核对 .env 中 KIMI_API_KEY，修改后重启 Flask。"
+            elif resp.status_code == 400 and detail and ("model" in detail.lower() or "模型" in detail):
+                base = f"模型「{model_id}」不可用（HTTP 400）。请在 .env 中更新为平台当前支持的 KIMI_MODEL。"
+            else:
+                base = f"Kimi 接口异常: HTTP {resp.status_code}"
+            if detail:
+                base = f"{base} 详情：{detail}"
+            return jsonify({"error": base})
+        content = resp.json().get("choices", [{}])[0].get("message", {}).get("content", "").strip()
+        if not content:
+            return jsonify({"error": "Kimi 返回内容为空"})
+        return jsonify({"ok": True, "analysis": content, "model_used": model_id})
+    except Exception as e:
+        return jsonify({"error": f"请求失败: {str(e)}"})
+
+
+def _macro_snapshot_for_rebalance_advice():
+    """
+    为组合调仓建议拉取简要宏观/市场快照（与 /api/market 同源思路：AkShare 新浪指数日线）。
+    失败时返回说明性占位文本，不抛异常。
+    """
+    lines = []
+    snap_map = [
+        ("上证指数", "sh000001"),
+        ("深证成指", "sz399001"),
+        ("创业板指", "sz399006"),
+        ("沪深300", "sh000300"),
+    ]
+    for name, symbol in snap_map:
+        try:
+            df_idx = ak.stock_zh_index_daily(symbol=symbol)
+            if df_idx is None or df_idx.empty or len(df_idx) < 2:
+                continue
+            latest_close = float(df_idx.iloc[-1]["close"])
+            prev_close = float(df_idx.iloc[-2]["close"])
+            change_pct = 0.0 if prev_close == 0 else (latest_close - prev_close) / prev_close * 100
+            lines.append(f"- {name}：{latest_close:.2f} 点，较前一日 {change_pct:+.2f}%")
+        except Exception:
+            continue
+    if not lines:
+        return "（主要指数行情暂不可用，请结合公开市场信息判断宏观环境。）"
+    return "\n".join(lines)
+
+
+def _normalize_holdings_for_rebalance_api(raw_list):
+    """将前端传来的持仓整理为统一结构。"""
+    out = []
+    for h in raw_list or []:
+        if not isinstance(h, dict):
+            continue
+        code = str(h.get("code", "")).strip()
+        if not code:
+            continue
+        mv = float(h.get("market_value") or h.get("amount") or 0)
+        shares = float(h.get("shares") or 0)
+        cost = float(h.get("cost") or 0)
+        cur = float(h.get("current") or 0)
+        rp = h.get("return_pct")
+        if rp is None and cost > 0 and cur > 0:
+            rp = (cur - cost) / cost * 100
+        out.append({
+            "code": code,
+            "name": str(h.get("name", "") or code).strip(),
+            "asset_type": "基金" if h.get("asset_type") == "基金" else "股票",
+            "market_value": mv,
+            "return_pct": float(rp) if rp is not None else 0.0,
+            "shares": shares,
+            "cost": cost,
+            "current": cur,
+        })
+    return out
+
+
+def _kimi_portfolio_rebalance_impl():
+    """
+    结合用户持仓摘要 + 行业分布 + A 股主要指数快照，调用 Kimi 生成整体调仓建议。
+    由多个 URL 复用，避免单一路径在代理/缓存下 404。
+    """
+    from dotenv_local import get_kimi_api_key, get_kimi_model
+
+    data, jerr = _safe_request_json()
+    if jerr:
+        return jsonify({"ok": False, "error": jerr}), 400
+    data = data or {}
+    raw_holdings = data.get("holdings") or []
+    holdings = _normalize_holdings_for_rebalance_api(raw_holdings)
+    if not holdings:
+        return jsonify({"ok": False, "error": "持仓为空，无法生成建议"})
+
+    api_key = get_kimi_api_key()
+    if not api_key:
+        return jsonify({"ok": False, "error": "KIMI_API_KEY 未配置（可在 .env 中设置 KIMI_API_KEY 或 MOONSHOT_API_KEY）"})
+
+    total_value = float(data.get("total_value") or 0)
+    if total_value <= 0:
+        total_value = sum(h["market_value"] for h in holdings)
+    total_return_pct = data.get("total_return_pct")
+    try:
+        total_return_pct = float(total_return_pct)
+    except (TypeError, ValueError):
+        total_return_pct = None
+
+    industry_dist = data.get("industry_distribution") or []
+    if not isinstance(industry_dist, list):
+        industry_dist = []
+
+    total_mv = sum(h["market_value"] for h in holdings) or 1.0
+    sorted_h = sorted(holdings, key=lambda x: x["market_value"], reverse=True)[:20]
+
+    hold_lines = []
+    for h in sorted_h:
+        w = h["market_value"] / total_mv * 100
+        hold_lines.append(
+            f"- {h['name']}（{h['code']}，{h['asset_type']}）"
+            f" 市值占比 {w:.1f}%，持仓收益率 {h['return_pct']:+.2f}%"
+        )
+    holdings_block = "\n".join(hold_lines)
+
+    ind_lines = []
+    for it in industry_dist[:12]:
+        if isinstance(it, dict) and it.get("name") is not None:
+            try:
+                v = float(it.get("value", 0))
+            except (TypeError, ValueError):
+                v = 0.0
+            ind_lines.append(f"- {it.get('name', '')}: {v:.1f}%")
+    industry_block = "\n".join(ind_lines) if ind_lines else "（未提供行业分布，可按持仓名称自行推断集中度。）"
+
+    macro_text = _macro_snapshot_for_rebalance_advice()
+
+    ret_note = ""
+    if total_return_pct is not None:
+        ret_note = f"\n- 组合整体收益率（相对成本）：{total_return_pct:+.2f}%"
+    summary_block = (
+        f"- 持仓只数：{len(holdings)}\n"
+        f"- 持仓总市值（参考）：约 {total_value:,.0f} 元"
+        f"{ret_note}"
+    )
+
+    user_prompt = f"""请作为「组合与资产配置顾问」，根据以下真实数据撰写**整体调仓建议**（面向个人投资者，中文）。
+
+【组合概要】
+{summary_block}
+
+【行业/主题分布（市值占比）】
+{industry_block}
+
+【重仓及主要持仓（按市值从高到低，最多20条）】
+{holdings_block}
+
+【主要指数与大盘环境（最近一个交易日相对前一交易日涨跌）】
+{macro_text}
+
+**写作要求：**
+1. 先给 2~4 句执行摘要，说明当前组合与宏观环境是否匹配。
+2. 用二级标题组织：## 组合健康度、## 宏观与仓位匹配、## 调仓动作建议、## 风险与纪律。
+3. 「调仓动作建议」中请尽量具体：例如建议增持/减持哪类资产或主题、是否需降低单一标的集中度、股债（或股基）比例是否调整；若信息不足请明确写出假设。
+4. 不得编造未提供的持仓或指数数值；未给出的数据请写「数据不足」而非猜测具体数字。
+5. 全文克制、可执行，避免夸大收益；结尾简短风险提示：仅供参考，不构成投资建议。"""
+
+    system_prompt = (
+        "你是持牌语境下的中文证券投资顾问助手，擅长组合诊断与资产配置。"
+        "只依据用户提供的持仓与指数快照作答，不捏造新闻或具体价位目标。"
+    )
+
+    try:
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        }
+        model_id = get_kimi_model(default=KIMI_MODEL)
+        payload = {
+            "model": model_id,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            "temperature": 0.35,
+        }
+        api_url = (os.getenv("KIMI_API_URL") or KIMI_API_URL).strip()
+        resp = requests.post(api_url, headers=headers, json=payload, timeout=55)
+        if resp.status_code == 429:
+            return jsonify({"ok": False, "error": "Kimi 请求频率过高，请稍后再试"})
+        if resp.status_code != 200:
+            detail = _moonshot_api_error_detail(resp)
+            if resp.status_code == 401:
+                base = "API 密钥无效、已过期或未生效（HTTP 401）。请核对 .env 中 KIMI_API_KEY / MOONSHOT_API_KEY，并在修改后重启 Flask。"
+            elif resp.status_code == 400 and detail and ("model" in detail.lower() or "模型" in detail):
+                base = f"当前模型 ID「{model_id}」可能已下线或不可用（HTTP 400）。请在 .env 中设置平台文档中的 KIMI_MODEL 后重启服务。"
+            else:
+                base = f"Kimi 接口异常: HTTP {resp.status_code}"
+            if detail:
+                base = f"{base} 详情：{detail}"
+            return jsonify({"ok": False, "error": base})
+        content = (
+            resp.json()
+            .get("choices", [{}])[0]
+            .get("message", {})
+            .get("content", "")
+            .strip()
+        )
+        if not content:
+            return jsonify({"ok": False, "error": "Kimi 返回内容为空"})
+        return jsonify({
+            "ok": True,
+            "analysis": content,
+            "macro_snapshot": macro_text,
+            "engine": "kimi",
+            "model_used": model_id,
+        })
+    except Exception as e:
+        return jsonify({"ok": False, "error": f"请求失败: {str(e)}"})
+
+
+@app.route("/api/kimi/rebalance/health", methods=["GET"])
+def kimi_portfolio_rebalance_health():
+    """用于确认路由已加载（浏览器或 curl 访问应得到 JSON，而非 HTML 404）。"""
+    return jsonify({
+        "ok": True,
+        "service": "kimi-portfolio-rebalance",
+        "post_paths": ["/api/kimi/rebalance", "/api/kimi-portfolio-rebalance"],
+        "hint": "若 POST 仍 404，请确认已重启当前目录下的 app.py，且访问端口与启动端口一致。",
+    })
+
+
+@app.route("/api/kimi/rebalance", methods=["POST"])
+@app.route("/api/kimi-portfolio-rebalance", methods=["POST"])
+def kimi_portfolio_rebalance():
+    return _kimi_portfolio_rebalance_impl()
 
 
 if __name__ == "__main__":
