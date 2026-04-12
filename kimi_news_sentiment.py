@@ -158,8 +158,28 @@ def _call_kimi_json_titles(titles: List[str]) -> Dict[str, Any]:
         items = parsed["items"]
         if not isinstance(items, list):
             return None, "items 不是数组"
-        if len(items) != titles_len:
-            return None, f"items 条数 {len(items)} 与标题条数 {titles_len} 不一致"
+        if len(items) == 0 and titles_len > 0:
+            return None, "items 为空数组"
+        # 模型偶发少/多 1～2 条，直接判失败会导致整批快讯无标注；小幅差异自动对齐
+        diff = abs(len(items) - titles_len)
+        max_slack = max(2, min(5, titles_len // 3))
+        if diff > max_slack:
+            return None, f"items 条数 {len(items)} 与标题条数 {titles_len} 不一致（差距过大，已放弃对齐）"
+        if len(items) < titles_len:
+            logger.info(
+                "Kimi 快讯标注: items 条数 %s 少于标题 %s，已对缺省条目标为 neutral",
+                len(items),
+                titles_len,
+            )
+            while len(items) < titles_len:
+                items.append({"sentiment": "neutral"})
+        elif len(items) > titles_len:
+            logger.info(
+                "Kimi 快讯标注: items 条数 %s 多于标题 %s，已截断至与标题一致",
+                len(items),
+                titles_len,
+            )
+            items = items[:titles_len]
         out: List[str] = []
         for idx, it in enumerate(items):
             if not isinstance(it, dict):
